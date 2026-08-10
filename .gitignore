@@ -1,0 +1,4 @@
+node_modules/
+daemon.log
+daemon.err
+.DS_Store

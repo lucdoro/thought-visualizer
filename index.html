@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Claude — Thought Visualizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-0: #07040f;
+  --bg-1: #0d0820;
+  --violet: #7b4dff;
+  --violet-hi: #b58cff;
+  --violet-lo: #3d2680;
+  --gold: #ffd28c;
+  --mint: #7effc6;
+  --dim: #6b5b8a;
+  --text: #e9e2ff;
+  --text-dim: #9a8fbe;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; height: 100%; width: 100%;
+  background: radial-gradient(ellipse at 50% 40%, var(--bg-1) 0%, var(--bg-0) 70%, #000 100%);
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  overflow: hidden;
+  cursor: crosshair;
+}
+canvas#stage {
+  position: fixed; inset: 0;
+  width: 100vw; height: 100vh;
+  display: block;
+}
+.grain {
+  pointer-events: none; position: fixed; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 3px 3px;
+  mix-blend-mode: overlay;
+  opacity: 0.6;
+}
+.hud {
+  position: fixed; z-index: 3;
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  pointer-events: none;
+  user-select: none;
+}
+.hud--tl { top: 22px; left: 26px; max-width: 260px; }
+.hud--tr { top: 22px; right: 26px; text-align: right; }
+.hud--bl { bottom: 22px; left: 26px; }
+.hud--br { bottom: 22px; right: 26px; text-align: right; }
+.hud__title {
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-weight: 300;
+  font-size: 22px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+  line-height: 1.05;
+}
+.hud__title em {
+  color: var(--violet-hi);
+}
+.hud__sub { margin-top: 6px; opacity: 0.7; }
+.hud__stat { font-variant-numeric: tabular-nums; color: var(--violet-hi); }
+
+.thoughtlog {
+  position: fixed;
+  left: 26px; right: 26px;
+  bottom: 60px;
+  z-index: 2;
+  pointer-events: none;
+  text-align: center;
+  font-family: "Fraunces", serif;
+  font-style: italic;
+  font-weight: 300;
+  font-size: 28px;
+  color: var(--text);
+  min-height: 80px;
+  text-shadow: 0 0 24px rgba(123,77,255,0.4);
+  transition: opacity .5s;
+  line-height: 1.4;
+}
+.thoughtlog__caret {
+  display: inline-block; width: 8px; height: 26px;
+  background: var(--violet-hi);
+  margin-left: 4px;
+  vertical-align: middle;
+  animation: blink 1s steps(1) infinite;
+  box-shadow: 0 0 12px var(--violet-hi);
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.control {
+  position: fixed; z-index: 5;
+  bottom: 22px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 10px; align-items: center;
+  background: rgba(13,8,32,0.6);
+  border: 1px solid rgba(123,77,255,0.25);
+  backdrop-filter: blur(12px);
+  padding: 8px 10px;
+  border-radius: 999px;
+  box-shadow: 0 8px 40px rgba(123,77,255,0.15), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.control input {
+  background: transparent;
+  border: 0; outline: 0;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  width: 340px;
+  padding: 6px 12px;
+}
+.control input::placeholder { color: var(--text-dim); }
+.btn {
+  border: 1px solid rgba(123,77,255,0.4);
+  background: linear-gradient(180deg, rgba(123,77,255,0.15), rgba(123,77,255,0.05));
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn:hover {
+  background: linear-gradient(180deg, rgba(181,140,255,0.3), rgba(123,77,255,0.15));
+  border-color: var(--violet-hi);
+  box-shadow: 0 0 20px rgba(181,140,255,0.4);
+}
+.btn.is-active {
+  background: linear-gradient(180deg, var(--violet), var(--violet-lo));
+  border-color: var(--violet-hi);
+  color: #fff;
+  box-shadow: 0 0 24px rgba(181,140,255,0.5);
+}
+.btn--ghost { background: transparent; }
+
+.mode-pill {
+  position: fixed; top: 22px; left: 50%; transform: translateX(-50%);
+  z-index: 5;
+  display: flex; gap: 4px;
+  background: rgba(13,8,32,0.5);
+  border: 1px solid rgba(123,77,255,0.2);
+  backdrop-filter: blur(10px);
+  padding: 4px;
+  border-radius: 999px;
+}
+.mode-pill .btn {
+  padding: 5px 12px; font-size: 10px; border: 0;
+}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div class="grain"></div>
+
+<div class="hud hud--tl">
+  <div class="hud__title">thought <em>visualizer</em></div>
+  <div class="hud__sub">claude · opus 4.7</div>
+</div>
+<div class="hud hud--tr">
+  <div>neurons <span class="hud__stat" id="statNeurons">0</span></div>
+  <div>synapses <span class="hud__stat" id="statSyn">0</span></div>
+  <div>tokens <span class="hud__stat" id="statTok">0</span></div>
+</div>
+<div class="hud hud--bl">
+  <div>mode <span class="hud__stat" id="statMode">idle</span></div>
+  <div>fps <span class="hud__stat" id="statFps">0</span></div>
+</div>
+<div class="hud hud--br">
+  <div>drag · xy/yz plane</div>
+  <div>⇧ drag · xw/yw</div>
+  <div>⌥ drag · xz/zw</div>
+  <div>scroll · zoom</div>
+  <div>space · pulse</div>
+</div>
+
+<div class="mode-pill">
+  <button class="btn is-active" data-mode="observe">auto-observe</button>
+  <button class="btn" data-mode="sim">simulate</button>
+  <button class="btn" data-mode="live">live api</button>
+</div>
+
+<div class="hud" style="top:70px;left:50%;transform:translateX(-50%);text-align:center;font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:var(--text-dim);text-transform:none;letter-spacing:0.02em;pointer-events:none;">
+  <span id="obsStatus">łączę z /stream…</span>
+</div>
+
+<div class="thoughtlog" id="thoughtlog"></div>
+
+<div class="control">
+  <input id="prompt" placeholder="daj mi problem do przemyślenia..." />
+  <button class="btn" id="think">think</button>
+  <button class="btn btn--ghost" id="clear">clear</button>
+</div>
+
+<script>
+// =========================================================================
+//  THOUGHT VISUALIZER
+//  A generative canvas that grows a neural-tapestry from an LLM's stream
+//  of reasoning. Words become neurons; repeated concepts wire together;
+//  each "thought" adds a glyph to the constellation.
+// =========================================================================
+
+const stage = document.getElementById('stage');
+const ctx = stage.getContext('2d', { alpha: true });
+let W = 0, H = 0, DPR = window.devicePixelRatio || 1;
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  stage.width = W * DPR; stage.height = H * DPR;
+  stage.style.width = W + 'px'; stage.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize); resize();
+
+// --- 4D Camera -----------------------------------------------------------
+// The scene lives in four spatial dimensions. There are C(4,2)=6 rotation
+// planes: xy, xz, xw, yz, yw, zw. Each has its own angle and drift rate,
+// so the object tumbles through hyperspace without ever repeating.
+// Projection is 4D → 3D → 2D via two perspective divides.
+const cam4 = {
+  a:   { xy: 0, xz: 0, xw: 0, yz: 0, yw: 0, zw: 0 },     // current angles
+  t:   { xy: 0, xz: 0, xw: 0, yz: 0, yw: 0, zw: 0 },     // targets (user-driven)
+  v:   { xy: 0.00006, xz: 0.00004, xw: 0.00009, yz: 0.00005, yw: 0.00007, zw: 0.00003 }, // autospin
+  distW: 900, distZ: 700,
+  zoom: 1,
+};
+let drag = null;
+stage.addEventListener('mousedown', e => drag = {
+  x: e.clientX, y: e.clientY,
+  base: { ...cam4.t },
+  shift: e.shiftKey, alt: e.altKey,
+});
+window.addEventListener('mouseup', () => drag = null);
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  const dx = (e.clientX - drag.x) * 0.006;
+  const dy = (e.clientY - drag.y) * 0.006;
+  if (drag.shift) {
+    cam4.t.xw = drag.base.xw + dx;
+    cam4.t.yw = drag.base.yw + dy;
+  } else if (drag.alt) {
+    cam4.t.xz = drag.base.xz + dx;
+    cam4.t.zw = drag.base.zw + dy;
+  } else {
+    cam4.t.xy = drag.base.xy + dx;
+    cam4.t.yz = drag.base.yz + dy;
+  }
+});
+stage.addEventListener('wheel', e => {
+  e.preventDefault();
+  cam4.zoom = Math.max(0.4, Math.min(3.0, cam4.zoom * (1 - e.deltaY * 0.001)));
+}, { passive: false });
+
+// Rotate a 4D point through all six planes.
+function rot4(p) {
+  let { x, y, z, w } = p;
+  const a = cam4.a;
+  let c, s;
+  c = Math.cos(a.xy); s = Math.sin(a.xy); [x, y] = [x*c - y*s, x*s + y*c];
+  c = Math.cos(a.xz); s = Math.sin(a.xz); [x, z] = [x*c - z*s, x*s + z*c];
+  c = Math.cos(a.xw); s = Math.sin(a.xw); [x, w] = [x*c - w*s, x*s + w*c];
+  c = Math.cos(a.yz); s = Math.sin(a.yz); [y, z] = [y*c - z*s, y*s + z*c];
+  c = Math.cos(a.yw); s = Math.sin(a.yw); [y, w] = [y*c - w*s, y*s + w*c];
+  c = Math.cos(a.zw); s = Math.sin(a.zw); [z, w] = [z*c - w*s, z*s + w*c];
+  return { x, y, z, w };
+}
+
+// Project a 4D point onto the 2D canvas.  Returns screen coords + a
+// combined depth factor used to scale size and modulate opacity.
+function project(p) {
+  const r = rot4(p);
+  const wS = cam4.distW / Math.max(60, cam4.distW - r.w);
+  const x3 = r.x * wS, y3 = r.y * wS, z3 = r.z * wS;
+  const zS = cam4.distZ / Math.max(60, cam4.distZ - z3);
+  return {
+    x: x3 * zS * cam4.zoom,
+    y: y3 * zS * cam4.zoom,
+    depth: Math.max(0.15, Math.min(2.4, (wS + zS) * 0.5)),
+  };
+}
+
+// --- The Brain -----------------------------------------------------------
+const neurons = []; // { x, y, r, conceptId, energy, born, hue, glyph }
+const synapses = []; // { a, b, strength, activity }
+const particles = []; // token flow particles
+const glyphs = [];   // background mandala glyphs
+const concepts = new Map(); // word -> neuron index
+
+let totalTokens = 0;
+
+const STOP = new Set(('the a an and or but if then when so is are was were be been being do does did have has had i you we they it this that these those of to in on for with as by from at into onto not no yes about there here what which who how why where can could should would may might must will shall just very really quite also more most some any all each every ' +
+  'to jest są była był byli być robić robił mieć miał na w z do od dla przez o po nad pod przed za obok jak co gdzie kto który która które jaki jaka jakie tak nie tylko bardzo już oraz albo lub ale bo bo więc czyli może musi powinien będzie').split(/\s+/));
+
+function hueForConcept(word) {
+  let h = 0;
+  for (let i = 0; i < word.length; i++) h = (h * 31 + word.charCodeAt(i)) >>> 0;
+  return 260 + (h % 80) - 40; // stay in violet/blue/pink range
+}
+
+// Uniform random point on the 3-sphere (surface of a 4-ball) of radius r.
+// Uses two independent 2D normals then normalizes.
+function randomOnHypersphere(r) {
+  let x, y, z, w, len;
+  do {
+    x = Math.random() * 2 - 1;
+    y = Math.random() * 2 - 1;
+    z = Math.random() * 2 - 1;
+    w = Math.random() * 2 - 1;
+    len = Math.sqrt(x*x + y*y + z*z + w*w);
+  } while (len < 0.001 || len > 1);
+  return { x: x/len * r, y: y/len * r, z: z/len * r, w: w/len * r };
+}
+
+function addThought(text) {
+  if (!text) return;
+  totalTokens += text.split(/\s+/).length;
+  const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter(Boolean);
+  const meaningful = words.filter(w => w.length > 2 && !STOP.has(w));
+
+  const nodesThisThought = [];
+  for (const w of meaningful) {
+    let idx = concepts.get(w);
+    if (idx === undefined) {
+      // birth a new neuron on the surface of a 4-sphere of random radius
+      const rad = 90 + Math.random() * 220;
+      const p4 = randomOnHypersphere(rad);
+      const n = {
+        word: w,
+        x: p4.x, y: p4.y, z: p4.z, w: p4.w,
+        vx: 0, vy: 0, vz: 0, vw: 0,
+        r: 3 + Math.random() * 2,
+        energy: 1.0,
+        born: performance.now(),
+        hue: hueForConcept(w),
+      };
+      neurons.push(n);
+      idx = neurons.length - 1;
+      concepts.set(w, idx);
+      spawnGlyph(n);
+    } else {
+      neurons[idx].energy = Math.min(2.2, neurons[idx].energy + 0.6);
+      neurons[idx].r = Math.min(9, neurons[idx].r + 0.15);
+    }
+    nodesThisThought.push(idx);
+  }
+
+  // wire pairs within this thought (co-occurrence)
+  for (let i = 0; i < nodesThisThought.length - 1; i++) {
+    for (let j = i + 1; j < Math.min(i + 4, nodesThisThought.length); j++) {
+      const a = nodesThisThought[i], b = nodesThisThought[j];
+      if (a === b) continue;
+      let syn = synapses.find(s => (s.a === a && s.b === b) || (s.a === b && s.b === a));
+      if (!syn) { syn = { a, b, strength: 0.2, activity: 1.0 }; synapses.push(syn); }
+      syn.strength = Math.min(1, syn.strength + 0.15);
+      syn.activity = 1.0;
+      // spawn token particles along the edge
+      particles.push({
+        a, b, t: 0, speed: 0.6 + Math.random() * 0.8,
+        hue: neurons[a].hue, life: 1,
+      });
+    }
+  }
+
+  // caption the thought
+  showCaption(text);
+}
+
+// --- Glyph tapestry ------------------------------------------------------
+function spawnGlyph(neuron) {
+  // A small procedural polytope shaped by the neuron's 4D position.
+  const sides = 3 + Math.floor(Math.random() * 5);
+  const size = 8 + Math.random() * 24;
+  const rot = Math.random() * Math.PI;
+  glyphs.push({
+    x: neuron.x + (Math.random() - 0.5) * 60,
+    y: neuron.y + (Math.random() - 0.5) * 60,
+    z: neuron.z + (Math.random() - 0.5) * 60,
+    w: neuron.w + (Math.random() - 0.5) * 60,
+    sides, size, rot,
+    hue: neuron.hue,
+    alpha: 0,
+    tAlpha: 0.05 + Math.random() * 0.08,
+    born: performance.now(),
+  });
+}
+
+// --- Caption stream ------------------------------------------------------
+const captionEl = document.getElementById('thoughtlog');
+let captionQueue = [];
+let captionCurrent = '';
+let captionIdx = 0;
+let captionTimer = 0;
+
+function showCaption(text) {
+  captionQueue.push(text);
+  if (captionQueue.length > 6) captionQueue.shift();
+}
+function stepCaption(dt) {
+  captionTimer -= dt;
+  if (captionIdx < captionCurrent.length && captionTimer <= 0) {
+    captionIdx += 1;
+    captionTimer = 22; // ms per char
+    render();
+  }
+  if (captionIdx >= captionCurrent.length && captionQueue.length) {
+    // move to next after a beat
+    captionTimer -= dt;
+    if (captionTimer < -700) {
+      captionCurrent = captionQueue.shift();
+      captionIdx = 0;
+    }
+  }
+  function render() {
+    captionEl.innerHTML = captionCurrent.slice(0, captionIdx) + '<span class="thoughtlog__caret"></span>';
+  }
+  if (captionCurrent === '' && captionQueue.length) {
+    captionCurrent = captionQueue.shift();
+    captionIdx = 0;
+    render();
+  }
+}
+
+// --- Physics -------------------------------------------------------------
+function stepPhysics(dt) {
+  // advance autospin + ease targets
+  for (const k of Object.keys(cam4.v)) cam4.t[k] += cam4.v[k] * dt;
+  for (const k of Object.keys(cam4.a)) cam4.a[k] += (cam4.t[k] - cam4.a[k]) * 0.06;
+
+  for (const n of neurons) {
+    // gentle attractor toward the 4D origin
+    n.vx += -n.x * 0.00006 * dt;
+    n.vy += -n.y * 0.00006 * dt;
+    n.vz += -n.z * 0.00006 * dt;
+    n.vw += -n.w * 0.00006 * dt;
+    // damping
+    n.vx *= 0.96; n.vy *= 0.96; n.vz *= 0.96; n.vw *= 0.96;
+    n.x += n.vx * dt * 0.06;
+    n.y += n.vy * dt * 0.06;
+    n.z += n.vz * dt * 0.06;
+    n.w += n.vw * dt * 0.06;
+    n.energy *= 0.995;
+    n.r = Math.max(2.5, n.r * 0.9995);
+  }
+  // 4D repulsion (light; O(n^2) capped)
+  const N = Math.min(neurons.length, 200);
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) {
+      const a = neurons[i], b = neurons[j];
+      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, dw = b.w - a.w;
+      const d2 = dx*dx + dy*dy + dz*dz + dw*dw + 0.1;
+      if (d2 > 90000) continue;
+      const f = 320 / d2;
+      const dd = Math.sqrt(d2);
+      const nx = dx/dd, ny = dy/dd, nz = dz/dd, nw = dw/dd;
+      a.vx -= nx*f; a.vy -= ny*f; a.vz -= nz*f; a.vw -= nw*f;
+      b.vx += nx*f; b.vy += ny*f; b.vz += nz*f; b.vw += nw*f;
+    }
+  }
+  // 4D spring along synapses
+  for (const s of synapses) {
+    const a = neurons[s.a], b = neurons[s.b];
+    if (!a || !b) continue;
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, dw = b.w - a.w;
+    const d = Math.sqrt(dx*dx + dy*dy + dz*dz + dw*dw);
+    const target = 90 + (1 - s.strength) * 120;
+    const f = (d - target) * 0.0012 * s.strength;
+    const inv = 1 / (d + 0.01);
+    const nx = dx * inv, ny = dy * inv, nz = dz * inv, nw = dw * inv;
+    a.vx += nx*f; a.vy += ny*f; a.vz += nz*f; a.vw += nw*f;
+    b.vx -= nx*f; b.vy -= ny*f; b.vz -= nz*f; b.vw -= nw*f;
+    s.activity *= 0.985;
+  }
+  // particles
+  for (const p of particles) {
+    p.t += 0.008 * p.speed * dt * 0.06;
+    if (p.t > 1) p.life -= 0.05;
+  }
+  for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) particles.splice(i, 1);
+  for (const g of glyphs) g.alpha = Math.min(0.9, g.alpha + g.tAlpha * dt * 0.005);
+}
+
+// --- Render --------------------------------------------------------------
+function draw() {
+  ctx.fillStyle = 'rgba(7,4,15,0.28)';
+  ctx.fillRect(0, 0, W, H);
+
+  // radial vignette bloom
+  const g = ctx.createRadialGradient(W/2, H/2, 40, W/2, H/2, Math.max(W, H) * 0.7);
+  g.addColorStop(0, 'rgba(123,77,255,0.06)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.translate(W/2, H/2);
+
+  // Project everything from 4D to screen; cache projections for this frame.
+  const projN = neurons.map(project);
+  const projG = glyphs.map(project);
+
+  // Depth-sorted draw order — deeper first so nearer things overdraw.
+  const nOrder = neurons.map((_, i) => i).sort((a, b) => projN[a].depth - projN[b].depth);
+  const gOrder = glyphs.map((_, i) => i).sort((a, b) => projG[a].depth - projG[b].depth);
+
+  // glyph tapestry (background layer, depth-modulated)
+  for (const i of gOrder) {
+    const gl = glyphs[i];
+    const p = projG[i];
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(gl.rot + cam4.a.xy * 0.5);
+    ctx.strokeStyle = `hsla(${gl.hue}, 70%, 60%, ${gl.alpha * 0.18 * Math.min(1, p.depth)})`;
+    ctx.lineWidth = 0.5 * p.depth;
+    const size = gl.size * p.depth;
+    ctx.beginPath();
+    for (let k = 0; k <= gl.sides; k++) {
+      const a = (k / gl.sides) * Math.PI * 2;
+      const x = Math.cos(a) * size;
+      const y = Math.sin(a) * size;
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // synapses (4D-projected)
+  for (const s of synapses) {
+    const a = neurons[s.a], b = neurons[s.b];
+    if (!a || !b) continue;
+    const pa = projN[s.a], pb = projN[s.b];
+    const depthMix = (pa.depth + pb.depth) * 0.5;
+    const alpha = (0.05 + s.strength * 0.25 + s.activity * 0.35) * Math.min(1, depthMix);
+    const grad = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
+    grad.addColorStop(0, `hsla(${a.hue}, 80%, 65%, ${alpha})`);
+    grad.addColorStop(1, `hsla(${b.hue}, 80%, 65%, ${alpha})`);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = (0.4 + s.strength * 1.3) * depthMix;
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+  }
+
+  // particles (token flow)
+  for (const p of particles) {
+    const a = neurons[p.a], b = neurons[p.b];
+    if (!a || !b) continue;
+    const x = a.x + (b.x - a.x) * p.t;
+    // 4D particles: interpolate in 4D, project every frame
+    const a4 = { x: a.x + (b.x - a.x) * p.t, y: a.y + (b.y - a.y) * p.t,
+                 z: a.z + (b.z - a.z) * p.t, w: a.w + (b.w - a.w) * p.t };
+    const pp = project(a4);
+    ctx.fillStyle = `hsla(${p.hue}, 90%, 75%, ${p.life * pp.depth})`;
+    ctx.beginPath();
+    ctx.arc(pp.x, pp.y, 1.4 * pp.depth, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `hsla(${p.hue}, 90%, 75%, ${p.life * 0.18 * pp.depth})`;
+    ctx.beginPath(); ctx.arc(pp.x, pp.y, 5 * pp.depth, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // neurons (nearer draws over farther)
+  for (const idx of nOrder) {
+    const n = neurons[idx];
+    const p = projN[idx];
+    const depth = p.depth;
+    const bright = 55 + n.energy * 20;
+    const r = Math.max(1, n.r * depth);
+    ctx.fillStyle = `hsla(${n.hue}, 85%, ${bright}%, ${(0.55 + n.energy * 0.25) * Math.min(1, depth)})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+
+    // glow halo, scaled by depth
+    const haloR = r * 6 * (0.4 + n.energy);
+    const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
+    halo.addColorStop(0, `hsla(${n.hue}, 90%, 70%, ${0.35 * n.energy * depth})`);
+    halo.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(p.x - haloR, p.y - haloR, haloR * 2, haloR * 2);
+
+    // label for high-energy nearby nodes
+    if (n.energy > 1.2 && depth > 0.6 && n.word) {
+      ctx.fillStyle = `hsla(${n.hue}, 60%, 85%, ${Math.min(1, n.energy - 1) * depth})`;
+      ctx.font = `${Math.round(10 * depth)}px "JetBrains Mono", monospace`;
+      ctx.fillText(n.word, p.x + r + 4, p.y + 3);
+    }
+  }
+
+  ctx.restore();
+}
+
+// --- Loop ----------------------------------------------------------------
+let last = performance.now(), frames = 0, fpsT = 0, fps = 0;
+function loop(now) {
+  const dt = Math.min(50, now - last); last = now;
+  stepPhysics(dt);
+  stepCaption(dt);
+  draw();
+  frames++; fpsT += dt;
+  if (fpsT > 500) { fps = Math.round(frames / (fpsT / 1000)); frames = 0; fpsT = 0;
+    document.getElementById('statFps').textContent = fps;
+    document.getElementById('statNeurons').textContent = neurons.length;
+    document.getElementById('statSyn').textContent = synapses.length;
+    document.getElementById('statTok').textContent = totalTokens;
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// --- Simulated thinking --------------------------------------------------
+// A handful of pre-written "internal monologues" that plausibly resemble
+// how I structure a problem. Each entry is chopped into thought-fragments.
+const SIM_THOUGHTS = {
+  default: [
+    "OK, użytkownik prosi o wizualizację myśli — muszę rozłożyć to na warstwy.",
+    "Pierwsza warstwa: co to znaczy 'myśl' w kontekście LLM.",
+    "Tokeny? Aktywacje? Ślady rozumowania? Extended thinking?",
+    "Wybieram ślady rozumowania — najbliższe temu, co człowiek nazwałby myślą.",
+    "Druga warstwa: jak to pokazać wizualnie.",
+    "Neurony jako węzły, synapsy jako połączenia — metafora prosta i czytelna.",
+    "Ale sama sieć to za mało — trzeba pokazać przepływ, energię, ewolucję.",
+    "Cząstki wędrujące wzdłuż synaps oddadzą przepływ tokenów.",
+    "Kolor każdego węzła zależy od pojęcia — hash słowa mapuje na hue.",
+    "Trzecia warstwa: dynamika. Węzły muszą się układać, wygasać, rezonować.",
+    "Force-directed layout: repulsja + sprężyny na synapsach.",
+    "Nowe pojęcia rodzą się na obrzeżach i migrują do centrum grawitacji.",
+    "Powtórzenia pojęcia wzmacniają węzeł — świeci jaśniej, tycha.",
+    "Współwystąpienie w jednym zdaniu tworzy synapsę.",
+    "Warstwa czwarta: pamięć. Każda myśl zostawia glif w tapicerce tła.",
+    "Z czasem powstaje mandala — mapa tego, co przeszło przez sieć.",
+    "Estetyka: fiolet z systemu lucdoro.design, złoto dla akcentów, mięta dla anomalii.",
+    "Ciemne tło, delikatne ziarno, blur i vignette dla głębi.",
+    "Interakcja: przeciąganie obraca kamerę, scroll zoom, spacja puls.",
+    "Ostatnia warstwa: streaming. Text pojawia się litera po literze pod spodem.",
+    "Rytm captionu synchronizuje się z pulsami neuronów.",
+    "Ważne: to nie może wyglądać jak generyczny d3 graph — musi mieć duszę.",
+    "Dodam bloom, subtelną korekcję gamma, delikatny ruch parallax.",
+    "Sprawdzam czy fps trzyma się powyżej 55 przy 200 neuronach.",
+    "Optymalizacja: repulsja tylko na pierwszych 220 węzłach, reszta drift-only.",
+    "Skończone — teraz obserwuję jak myśl rysuje siebie samą.",
+  ],
+  design: [
+    "Widzę problem projektowy — muszę zdekomponować wymagania estetyczne.",
+    "Hierarchia informacji: co użytkownik zauważa pierwsze, drugie, trzecie.",
+    "Typografia: serif italic dla emocji, mono dla danych, sans dla akcji.",
+    "Grid czy chaos? Ten projekt woła o organiczny, bezsiatkowy układ.",
+    "Kontrast: głęboka czerń tła, ciepły fiolet akcentu, mleczna biel tekstu.",
+    "Motion: nic nie skacze, wszystko oddycha — easings out, długie durations.",
+    "Whitespace to postać sama w sobie — daję mu głos.",
+    "Testuję na siatce ośmiopunktowej, potem świadomie łamię zasadę.",
+    "Ostateczna kompozycja musi wyglądać jak zdjęcie — nie jak layout.",
+  ],
+  code: [
+    "Rozpisuję strukturę: dane, transformacje, efekty uboczne.",
+    "Gdzie jest state? Gdzie są czyste funkcje? Gdzie IO?",
+    "Zaczynam od typów — one dyktują kształt całego kodu.",
+    "Test najpierw dla ścieżki krytycznej, potem edge cases.",
+    "Refactor: nazwa mówi wszystko, jeśli musisz komentować — źle nazwałeś.",
+    "Warunki brzegowe: null, undefined, pusta tablica, przepełnienie.",
+    "Perf: mierzę zanim optymalizuję. Bez metryk to zgadywanie.",
+    "Log warstwowo: DEBUG dla developera, INFO dla operacji, WARN dla anomalii.",
+    "Commit atomowy — jedna myśl, jeden commit, jedno cofnięcie.",
+  ],
+};
+
+let simTimer = null;
+function startSim(prompt) {
+  stopSim();
+  const key = /design|projekt|ui|wygląd/i.test(prompt) ? 'design'
+            : /kod|code|refactor|bug/i.test(prompt) ? 'code'
+            : 'default';
+  const script = SIM_THOUGHTS[key];
+  let i = 0;
+  document.getElementById('statMode').textContent = 'simulating';
+  const tick = () => {
+    if (i >= script.length) {
+      document.getElementById('statMode').textContent = 'settled';
+      return;
+    }
+    addThought(script[i]);
+    i++;
+    simTimer = setTimeout(tick, 1400 + Math.random() * 900);
+  };
+  tick();
+}
+function stopSim() {
+  if (simTimer) { clearTimeout(simTimer); simTimer = null; }
+}
+
+// --- Live API mode (via local Node backend) ------------------------------
+let liveES = null;
+async function startLive(prompt) {
+  stopLive();
+  document.getElementById('statMode').textContent = 'live · connecting';
+  try {
+    const url = `/think?prompt=${encodeURIComponent(prompt || 'Pomyśl na głos o czymś zaskakującym.')}`;
+    liveES = new EventSource(url);
+    document.getElementById('statMode').textContent = 'live · streaming';
+    liveES.addEventListener('thought', e => addThought(e.data));
+    liveES.addEventListener('done', () => { document.getElementById('statMode').textContent = 'live · done'; stopLive(); });
+    liveES.onerror = () => { document.getElementById('statMode').textContent = 'live · error (backend?)'; stopLive(); };
+  } catch (err) {
+    document.getElementById('statMode').textContent = 'live · unavailable';
+  }
+}
+function stopLive() { if (liveES) { liveES.close(); liveES = null; } }
+
+// --- Auto-observer mode (connects to local server, watches Claude Code) --
+// This is the "other side of the mirror": each tool call, prompt, and
+// result Claude Code emits gets POSTed to /observe by shell hooks, then
+// broadcast to this page over SSE.  What you see below is the model at work.
+
+const OBS_SERVER = 'http://localhost:4173';
+const TOOL_HUE = { // hue-shift per tool for at-a-glance recognition
+  Read: 200, Write: 280, Edit: 280, MultiEdit: 280,
+  Bash: 35, Grep: 145, Glob: 145,
+  Task: 320, Agent: 320,
+  WebFetch: 15, WebSearch: 15,
+  TodoWrite: 60, NotebookEdit: 280,
+};
+
+let obsES = null;
+function pingObserver() {
+  const el = document.getElementById('obsStatus');
+  fetch(OBS_SERVER + '/stream', { method: 'HEAD' })
+    .then(() => { el.textContent = 'observer · live · patrz jak myślę'; })
+    .catch(() => { el.textContent = 'observer · offline (uruchom server.js lub włącz LaunchAgent)'; });
+}
+function startObserver() {
+  stopObserver();
+  document.getElementById('statMode').textContent = 'observer · connecting';
+  document.getElementById('obsStatus').textContent = 'observer · łączę…';
+  try {
+    obsES = new EventSource(OBS_SERVER + '/stream');
+    obsES.onopen = () => {
+      document.getElementById('statMode').textContent = 'observer · live';
+      document.getElementById('obsStatus').textContent = 'observer · żywy · to co widzisz dzieje się teraz';
+    };
+    obsES.onerror = () => {
+      document.getElementById('statMode').textContent = 'observer · offline';
+      document.getElementById('obsStatus').textContent = 'observer · offline (serwer nie odpowiada na :4173)';
+    };
+    const listen = (evt, fn) => obsES.addEventListener(evt, e => {
+      try { fn(JSON.parse(e.data)); } catch (err) { console.error(err); }
+    });
+
+    listen('session_start', () => {
+      captionEl.innerHTML = '';
+      showCaption('◈ nowa sesja Claude Code');
+      // gold burst from center
+      for (let k = 0; k < 12; k++) {
+        const angle = (k / 12) * Math.PI * 2;
+        neurons.push({
+          word: '', x: Math.cos(angle) * 6, y: Math.sin(angle) * 6,
+          vx: Math.cos(angle) * 6, vy: Math.sin(angle) * 6,
+          r: 4, energy: 2.2, born: performance.now(), hue: 45,
+        });
+      }
+    });
+    listen('user_prompt', obs => {
+      const text = obs.payload?.prompt || obs.payload?.user_input || obs.text || '';
+      if (text) {
+        showCaption('▶ ' + text.slice(0, 140));
+        // spawn a big gold neuron representing this prompt at the origin
+        neurons.push({
+          word: 'user', x: 0, y: 0, vx: 0, vy: 0,
+          r: 10, energy: 2.4, born: performance.now(), hue: 45,
+        });
+        addThought(text);
+      }
+    });
+    listen('pre_tool', obs => {
+      const tool = obs.payload?.tool_name || 'tool';
+      const input = obs.payload?.tool_input || {};
+      const hue = TOOL_HUE[tool] ?? 280;
+      const label = tool + summarizeToolInput(tool, input);
+      const angle = Math.random() * Math.PI * 2;
+      const rad = 60 + Math.random() * Math.min(W, H) * 0.35;
+      const n = {
+        word: label, x: Math.cos(angle) * rad, y: Math.sin(angle) * rad,
+        vx: 0, vy: 0, r: 5, energy: 1.8, born: performance.now(),
+        hue, tool: true,
+      };
+      neurons.push(n);
+      // link to last user prompt neuron if any
+      const userIdx = neurons.findIndex(x => x.word === 'user' && x.hue === 45);
+      if (userIdx >= 0) synapses.push({ a: userIdx, b: neurons.length - 1, strength: 0.6, activity: 1 });
+      spawnGlyph(n);
+      showCaption('◆ ' + label);
+    });
+    listen('post_tool', obs => {
+      const tool = obs.payload?.tool_name || 'tool';
+      // pulse the most recent tool neuron of this kind
+      for (let i = neurons.length - 1; i >= 0; i--) {
+        if (neurons[i].tool && neurons[i].word?.startsWith(tool)) {
+          neurons[i].energy = Math.min(2.4, neurons[i].energy + 0.8);
+          neurons[i].r = Math.min(11, neurons[i].r + 1.2);
+          // radiating particles
+          for (let k = 0; k < 5; k++) {
+            const angle = (k / 5) * Math.PI * 2;
+            const targetIdx = Math.floor(Math.random() * neurons.length);
+            if (targetIdx !== i) {
+              particles.push({ a: i, b: targetIdx, t: 0, speed: 1.2, hue: neurons[i].hue, life: 1 });
+            }
+          }
+          break;
+        }
+      }
+    });
+    listen('assistant_thought', obs => addThought(obs.text || obs.payload?.text || ''));
+    listen('assistant_message', obs => {
+      const t = obs.text || obs.payload?.text || '';
+      if (t) { showCaption('… ' + t.slice(0, 200)); addThought(t); }
+    });
+    listen('stop', () => {
+      showCaption('◇ turn ended');
+      document.getElementById('statMode').textContent = 'observer · settled';
+    });
+    listen('observation', obs => {
+      // generic fallback
+      const text = obs.text || JSON.stringify(obs).slice(0, 120);
+      addThought(text);
+    });
+  } catch (err) {
+    document.getElementById('statMode').textContent = 'observer · error';
+  }
+}
+function stopObserver() { if (obsES) { obsES.close(); obsES = null; } }
+
+function summarizeToolInput(tool, input) {
+  try {
+    if (tool === 'Read' || tool === 'Write' || tool === 'Edit' || tool === 'MultiEdit') {
+      return ' ' + (input.file_path || '').split('/').slice(-2).join('/');
+    }
+    if (tool === 'Bash') {
+      return ' $ ' + String(input.command || '').slice(0, 40);
+    }
+    if (tool === 'Grep' || tool === 'Glob') {
+      return ' ' + (input.pattern || '').slice(0, 40);
+    }
+    if (tool === 'Task' || tool === 'Agent') {
+      return ' → ' + (input.description || '').slice(0, 40);
+    }
+    if (tool === 'WebFetch' || tool === 'WebSearch') {
+      return ' ' + (input.url || input.query || '').slice(0, 40);
+    }
+  } catch {}
+  return '';
+}
+
+// --- UI wiring -----------------------------------------------------------
+let currentMode = 'observe';
+document.querySelectorAll('[data-mode]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('[data-mode]').forEach(x => x.classList.remove('is-active'));
+    b.classList.add('is-active');
+    currentMode = b.dataset.mode;
+    stopSim(); stopLive(); stopObserver();
+    if (currentMode === 'observe') startObserver();
+    else document.getElementById('statMode').textContent = 'idle';
+  });
+});
+document.getElementById('think').addEventListener('click', () => {
+  const p = document.getElementById('prompt').value.trim();
+  if (currentMode === 'sim') startSim(p);
+  else if (currentMode === 'live') startLive(p);
+  else {
+    // In observe mode, "think" injects a manual thought locally.
+    if (p) addThought(p);
+  }
+});
+document.getElementById('prompt').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('think').click();
+});
+document.getElementById('clear').addEventListener('click', () => {
+  stopSim(); stopLive();
+  neurons.length = 0; synapses.length = 0; particles.length = 0; glyphs.length = 0;
+  concepts.clear(); totalTokens = 0;
+  captionEl.innerHTML = '';
+  captionQueue = []; captionCurrent = ''; captionIdx = 0;
+  document.getElementById('statMode').textContent = 'idle';
+});
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    // pulse every neuron
+    for (const n of neurons) { n.energy = Math.min(2.4, n.energy + 0.8); n.r += 1; }
+    for (const s of synapses) s.activity = 1.0;
+  }
+});
+
+// autoboot with an ambient default thought so the screen isn't empty
+setTimeout(() => startSim(''), 400);
+</script>
+</body>
+</html>
