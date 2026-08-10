@@ -156,11 +156,64 @@ async function handleThink(req, res) {
   }
 }
 
+// --- Skill card generation -----------------------------------------------
+// When a user clicks a neuron in the visualizer, the frontend asks us to
+// turn that concept into a small "skill you can practice in daily life"
+// card. If Anthropic is available we ask Haiku; otherwise a templated card.
+async function handleSkill(req, res) {
+  cors(res);
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+  const url = new URL(req.url, 'http://x');
+  const word = (url.searchParams.get('word') || '').slice(0, 60).trim();
+  if (!word) { res.writeHead(400); res.end('{"error":"no word"}'); return; }
+
+  const client = await getAnthropic();
+  let card = null;
+  if (client) {
+    try {
+      const msg = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        messages: [{ role: 'user', content:
+`Zamień pojęcie "${word}" w kartę mikro-skilla do praktykowania w codziennym życiu.
+Odpowiedz WYŁĄCZNIE JSON-em (bez otoczki, bez markdown code fences) o strukturze:
+{
+  "skill": "krótka, aspiracyjna nazwa umiejętności (max 4 słowa)",
+  "why": "jedno zdanie: co się zmieni, jeśli będę to praktykować",
+  "practice": ["3 konkretne praktyki w trybie rozkazującym", "każda 4-10 słów", "wykonalna dziś"],
+  "quote": "krótki cytat lub aforyzm oddający sedno (max 12 słów)"
+}
+Odpowiedź po polsku. Bez emoji.` }],
+      });
+      const text = (msg.content?.[0]?.text || '').trim();
+      const m = text.match(/\{[\s\S]*\}/);
+      if (m) card = JSON.parse(m[0]);
+    } catch (e) { console.log('skill-gen error:', e.message); }
+  }
+  if (!card) {
+    card = {
+      skill: word.charAt(0).toUpperCase() + word.slice(1),
+      why: `Świadome uchwycenie "${word}" zmienia sposób, w jaki się nim posługujesz.`,
+      practice: [
+        `Nazwij "${word}" na głos, gdy je zauważysz w dziale dnia.`,
+        `Zapisz jeden konkretny przykład dziennie przez siedem dni.`,
+        `Zadaj sobie wieczorem: kiedy dziś zrobiłem to nieświadomie?`,
+      ],
+      quote: 'Uwaga jest wielokrotnie działającą dźwignią.',
+    };
+  }
+  card.word = word;
+  card.ts = Date.now();
+  res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(card));
+}
+
 // --- Router --------------------------------------------------------------
 http.createServer((req, res) => {
   if (req.url.startsWith('/stream'))  return handleStream(req, res);
   if (req.url.startsWith('/observe')) return handleObserve(req, res);
   if (req.url.startsWith('/think'))   return handleThink(req, res);
+  if (req.url.startsWith('/skill'))   return handleSkill(req, res);
   return serveStatic(req, res);
 }).listen(PORT, '127.0.0.1', () => {
   console.log(`\n  🧠  Thought Visualizer  →  http://localhost:${PORT}`);
