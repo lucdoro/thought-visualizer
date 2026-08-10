@@ -441,11 +441,16 @@ function randomOnHypersphere(r) {
   return { x: x/len * r, y: y/len * r, z: z/len * r, w: w/len * r };
 }
 
-function addThought(text) {
+function addThought(text, opts) {
   if (!text) return;
+  const force = opts && opts.force;
   totalTokens += text.split(/\s+/).length;
   const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter(Boolean);
-  const meaningful = words.filter(w => w.length > 2 && !STOP.has(w));
+  // For manual input (`force`), keep every word — otherwise strip stop words.
+  const meaningful = force ? words : words.filter(w => w.length > 2 && !STOP.has(w));
+  // If nothing meaningful survived, keep at least the first non-empty token
+  // so a single-word prompt always becomes something visible.
+  if (meaningful.length === 0 && words.length) meaningful.push(words[0]);
 
   const nodesThisThought = [];
   for (const w of meaningful) {
@@ -996,7 +1001,7 @@ document.getElementById('think').addEventListener('click', () => {
   else if (currentMode === 'live') startLive(p);
   else {
     // In observe mode, "think" injects a manual thought locally.
-    if (p) addThought(p);
+    if (p) { addThought(p, { force: true }); document.getElementById('prompt').value = ''; }
   }
 });
 document.getElementById('prompt').addEventListener('keydown', e => {
@@ -1012,11 +1017,14 @@ document.getElementById('clear').addEventListener('click', () => {
 });
 window.addEventListener('keydown', e => {
   if (e.code === 'Space') {
+    // don't steal spaces from text fields
+    const t = document.activeElement?.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA') return;
     e.preventDefault();
-    // pulse every neuron
     for (const n of neurons) { n.energy = Math.min(2.4, n.energy + 0.8); n.r += 1; }
     for (const s of synapses) s.activity = 1.0;
   }
+  if (e.code === 'Escape') closeSkill();
 });
 
 // --- Click-to-skill: turn a clicked neuron into a "daily life skill" card
