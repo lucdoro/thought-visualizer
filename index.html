@@ -644,9 +644,45 @@ canvas#stage {
   <button class="btn" id="think">think</button>
   <button class="btn" id="poster">→ plakat</button>
   <button class="btn btn--ghost" id="animBtn" title="autospin + particles + halos on/off">still</button>
+  <div class="persist-slider" title="ślady w przestrzeni — 0% crisp, 100% permanent">
+    <span class="persist-slider__lbl">trail</span>
+    <input type="range" id="persistSlider" min="0" max="100" step="1" value="72" />
+    <span class="persist-slider__val" id="persistValue">72%</span>
+  </div>
   <button class="btn btn--ghost" id="purge" title="usuń hasła/tokeny z widoku">purge</button>
   <button class="btn btn--ghost" id="clear">clear</button>
 </div>
+
+<style>
+.persist-slider {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 10px;
+}
+.persist-slider__lbl, .persist-slider__val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+.persist-slider__val { min-width: 30px; color: var(--violet-hi); }
+.persist-slider input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 84px; height: 3px;
+  background: linear-gradient(90deg, rgba(123,77,255,0.5), rgba(123,77,255,0.15));
+  border-radius: 2px;
+  outline: none;
+}
+.persist-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--violet-hi);
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(181,140,255,0.55);
+}
+.persist-slider input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 12px; border-radius: 50%; border: 0;
+  background: var(--violet-hi); cursor: pointer;
+  box-shadow: 0 0 10px rgba(181,140,255,0.55);
+}
+</style>
 
 <style>
 .btn.is-pulsing {
@@ -1034,7 +1070,10 @@ function stepPhysics(dt) {
 
 // --- Render --------------------------------------------------------------
 function draw() {
-  ctx.fillStyle = 'rgba(7,4,15,0.28)';
+  // Persistence slider drives the clear alpha: 0% = full clear (1.0),
+  // 100% = permanent trails (0.001, near-transparent).
+  const clearAlpha = Math.max(0.001, 1 - persistence);
+  ctx.fillStyle = `rgba(7,4,15,${clearAlpha})`;
   ctx.fillRect(0, 0, W, H);
 
   // radial vignette bloom
@@ -1142,35 +1181,38 @@ function draw() {
     }
   }
 
-  // Pass 2: labels — energy-first, cap font at 26px (was 220), collision
-  // detection so labels never stack on top of each other.  Sublinear
-  // scaling with depth: sqrt so macro zoom nudges size, not explodes it.
+  // Pass 2: labels scale LINEARLY with zoom (depth).  At base zoom
+  // (depth ≈ 1) fonts are ~11px = 1:1 native.  As you dive, labels grow
+  // proportionally — a 10× dive means 10× bigger text.  Collision skip
+  // in energy-order means the closest / most active concepts win the
+  // spot and lesser labels are dropped so nothing overlaps.
   const labelBoxes = [];
   const labelOrder = nOrder.slice().sort((a, b) =>
-    (neurons[b].energy + projN[b].depth * 0.15) -
-    (neurons[a].energy + projN[a].depth * 0.15));
+    (neurons[b].energy + projN[b].depth * 0.5) -
+    (neurons[a].energy + projN[a].depth * 0.5));
   for (const idx of labelOrder) {
     const n = neurons[idx];
     if (!n.word) continue;
     const p = projN[idx];
     const depth = p.depth;
-    if (n.energy < 0.9 && depth < 1.5) continue;
-    const fs = Math.max(10, Math.min(26, 10 + Math.sqrt(depth) * 3.5));
+    if (n.energy < 0.9 && depth < 1.2) continue;
+    // 1:1 at base depth (11px), linear thereafter, hard cap keeps a
+    // single macro-zoomed label from blowing past the viewport.
+    const fs = Math.max(11, Math.min(320, 11 * depth));
     ctx.font = `${Math.round(fs)}px "JetBrains Mono", ui-monospace, monospace`;
     const w = ctx.measureText(n.word).width;
     const h = fs * 1.15;
     const r = nodeR[idx] || 4;
-    const lx = p.x + r + 6;
-    const ly = p.y - fs * 0.35;
-    // Collision skip — labels drawn earlier (higher energy) get the spot.
+    const lx = p.x + r + fs * 0.4;
+    const ly = p.y - fs * 0.4;
     let hit = false;
     for (const b of labelBoxes) {
-      if (lx < b.x + b.w + 2 && lx + w > b.x - 2 &&
-          ly < b.y + b.h + 2 && ly + h > b.y - 2) { hit = true; break; }
+      if (lx < b.x + b.w + 4 && lx + w > b.x - 4 &&
+          ly < b.y + b.h + 4 && ly + h > b.y - 4) { hit = true; break; }
     }
     if (hit) continue;
     labelBoxes.push({ x: lx, y: ly, w, h });
-    const alpha = Math.min(1, Math.max(0.4, 0.55 + depth * 0.08));
+    const alpha = Math.min(1, Math.max(0.5, 0.55 + depth * 0.06));
     ctx.fillStyle = `hsla(${n.hue}, 60%, 85%, ${alpha})`;
     ctx.fillText(n.word, lx, ly + fs);
   }
@@ -2509,6 +2551,23 @@ setInterval(() => {
 }, 1500);
 
 // chart mode removed — memory spores replaced it
+
+// Persistence slider — controls the motion-trail fade rate.
+let persistence = 0.72;
+const PERSIST_KEY = 'thought-visualizer:persistence';
+const savedP = localStorage.getItem(PERSIST_KEY);
+if (savedP !== null && !Number.isNaN(+savedP)) persistence = +savedP;
+{
+  const slider = document.getElementById('persistSlider');
+  const val = document.getElementById('persistValue');
+  slider.value = Math.round(persistence * 100);
+  val.textContent = slider.value + '%';
+  slider.addEventListener('input', () => {
+    persistence = slider.value / 100;
+    val.textContent = slider.value + '%';
+    localStorage.setItem(PERSIST_KEY, persistence);
+  });
+}
 
 // Palette picker — nodes always repaint; chrome only if the 'chrome'
 // toggle is on (respects the 'kolory miały dotyczyć węzłów' instruction
