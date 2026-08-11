@@ -226,7 +226,15 @@ canvas#stage {
   flex-direction: column;
   gap: 12px;
 }
-.metro-view.is-active { display: flex; }
+.metro-view.is-active, .chart-view.is-active { display: flex; }
+.chart-view {
+  position: fixed; inset: 0; z-index: 3;
+  display: none;
+  padding: 90px 30px 30px;
+  background: radial-gradient(ellipse at 50% 15%, #0d0820 0%, #07040f 55%, #000 100%);
+  flex-direction: column;
+  gap: 12px;
+}
 .metro-view__title {
   font-family: 'JetBrains Mono', monospace;
   font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
@@ -569,6 +577,7 @@ canvas#stage {
 <div class="mode-pill">
   <button class="btn is-active" data-mode="observe">graph</button>
   <button class="btn" data-mode="metro">metro</button>
+  <button class="btn" data-mode="chart">chart</button>
   <button class="btn" data-mode="sim">demo</button>
 </div>
 
@@ -597,6 +606,15 @@ canvas#stage {
 </div>
 
 <div class="thoughtlog" id="thoughtlog"></div>
+
+<div class="chart-view" id="chartView">
+  <div class="metro-view__title">
+    live chart <em>· giełdowy widok · 1s tick · przewijanie w lewo · Y = energia konceptu · X = ostatnie 60s</em>
+  </div>
+  <div class="metro-svg-wrap">
+    <svg id="chartSvg" preserveAspectRatio="none"></svg>
+  </div>
+</div>
 
 <div class="metro-view" id="metroView">
   <div class="metro-view__title">
@@ -1556,16 +1574,19 @@ document.querySelectorAll('[data-mode]').forEach(b => {
     document.querySelectorAll('[data-mode]').forEach(x => x.classList.remove('is-active'));
     b.classList.add('is-active');
     currentMode = b.dataset.mode;
-    stopSim(); // observer stays alive across mode changes so metro/graph stay in sync
+    stopSim();
 
     const isMetro = currentMode === 'metro';
-    const isGraph = currentMode === 'observe' || currentMode === 'sim';
-    document.getElementById('stage').style.display = isMetro ? 'none' : 'block';
-    document.querySelector('.grain').style.display = isMetro ? 'none' : 'block';
+    const isChart = currentMode === 'chart';
+    const isOverlay = isMetro || isChart;
+    document.getElementById('stage').style.display = isOverlay ? 'none' : 'block';
+    document.querySelector('.grain').style.display = isOverlay ? 'none' : 'block';
     document.getElementById('metroView')?.classList.toggle('is-active', isMetro);
+    document.getElementById('chartView')?.classList.toggle('is-active', isChart);
 
     if (currentMode === 'observe') { startObserver(); document.getElementById('statMode').textContent = 'observer'; }
     else if (currentMode === 'metro') { startObserver(); renderMetroSVG(); document.getElementById('statMode').textContent = 'metro'; }
+    else if (currentMode === 'chart') { startObserver(); renderChartSVG(); document.getElementById('statMode').textContent = 'chart'; }
     else { stopObserver(); document.getElementById('statMode').textContent = 'demo'; }
   });
 });
@@ -2266,22 +2287,26 @@ let metroPan = { x: 0, y: 0 };
 function renderMetroSVG() {
   const svg = document.getElementById('metroSvg');
   if (!svg) return;
+  // Fill the actual container — no letterboxing, no shrink-to-fit.
+  const wrap = svg.parentElement;
+  const rect = wrap.getBoundingClientRect();
+  if (rect.width < 100 || rect.height < 100) return;
+
   const lines = computeMetroLayout();
-  const marginL = 180, marginR = 60, marginT = 60, marginB = 90;
-  // "Wektor ciężkości lingwistycznej" — sort lines by total energy (sum of
-  // station energies).  Heaviest concepts sit on the top layer, lightest
-  // at the bottom, so vertical position encodes semantic weight.
+  const marginL = 200, marginR = 80, marginT = 70, marginB = 100;
+  // "Wektor ciężkości lingwistycznej" — sort lines by total energy.
+  // Heaviest concepts sit on the top layer.
   lines.forEach(line => {
     line.weight = line.reduce((sum, s) => sum + (s.energy || 1), 0);
   });
   lines.sort((a, b) => b.weight - a.weight);
-  const laneH = 90;
-  const maxStations = Math.max(2, ...lines.map(l => l.length));
-  const stationSpacing = 100;
-  const contentW = Math.max(1200, marginL + marginR + (maxStations - 1) * stationSpacing);
-  const contentH = Math.max(700, marginT + marginB + lines.length * laneH);
-  const availW = contentW - marginL - marginR;
-  const W = contentW, H = contentH;
+  // Layout scales to container: lanes divide the vertical space, stations
+  // are placed on a normalised time axis across the horizontal space.
+  const W = rect.width;
+  const H = rect.height;
+  const availW = W - marginL - marginR;
+  const availH = H - marginT - marginB;
+  const laneH = availH / Math.max(1, lines.length);
 
   // Fit-to-view unless user has zoomed/panned manually.
   svg.setAttribute('viewBox', `${-metroPan.x} ${-metroPan.y} ${W / metroZoom} ${H / metroZoom}`);
@@ -2386,6 +2411,109 @@ window.addEventListener('mouseup', () => { metroDrag = null; });
 setInterval(() => {
   if (currentMode === 'metro') renderMetroSVG();
 }, 1500);
+
+// ==========================================================================
+//   LIVE CHART — stock-market-style scrolling time series
+//   Every second, snapshot the top-N concepts' energy and append to their
+//   history buffer.  Render a scrolling chart with newest values pinned
+//   to the right edge; old points scroll off the left after ~60s.
+// ==========================================================================
+const chartHistory = new Map();
+const CHART_WINDOW_S = 60;
+const CHART_TICK_MS = 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  const top = neurons
+    .filter(n => n.word && !n.tool && n.word !== 'user' && !looksSecret(n.word))
+    .sort((a, b) => b.energy - a.energy)
+    .slice(0, 8);
+  const activeSet = new Set(top.map(n => n.word));
+  for (const n of top) {
+    if (!chartHistory.has(n.word)) chartHistory.set(n.word, []);
+    const arr = chartHistory.get(n.word);
+    arr.push({ ts: now, e: n.energy, h: n.hue });
+    const cutoff = now - CHART_WINDOW_S * 1000;
+    while (arr.length && arr[0].ts < cutoff) arr.shift();
+  }
+  // trim inactive series
+  for (const [word, arr] of chartHistory) {
+    if (!activeSet.has(word) && arr[arr.length - 1]?.ts < now - CHART_WINDOW_S * 1000) {
+      chartHistory.delete(word);
+    }
+  }
+  if (currentMode === 'chart') renderChartSVG();
+}, CHART_TICK_MS);
+
+function renderChartSVG() {
+  const svg = document.getElementById('chartSvg');
+  if (!svg) return;
+  const wrap = svg.parentElement;
+  const rect = wrap.getBoundingClientRect();
+  if (rect.width < 100 || rect.height < 100) return;
+  const W = rect.width, H = rect.height;
+  const marginL = 90, marginR = 200, marginT = 40, marginB = 40;
+  const availW = W - marginL - marginR;
+  const availH = H - marginT - marginB;
+  const now = Date.now();
+  const winMs = CHART_WINDOW_S * 1000;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  const parts = [`<defs><style>
+    .grid { stroke: rgba(123,77,255,0.08); stroke-width: 1; }
+    .axis { fill: #6b5b8a; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.1em; }
+    .lbl { font-family: 'Manrope', sans-serif; font-size: 11px; font-weight: 500; }
+    .empty { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 20px; fill: #6b5b8a; }
+  </style></defs>`];
+
+  // Vertical grid every 10s + labels
+  for (let s = 0; s <= CHART_WINDOW_S; s += 10) {
+    const x = marginL + (1 - s / CHART_WINDOW_S) * availW;
+    parts.push(`<line x1="${x}" y1="${marginT}" x2="${x}" y2="${marginT + availH}" class="grid"/>`);
+    parts.push(`<text x="${x}" y="${H - 14}" class="axis" text-anchor="middle">${s === 0 ? 'now' : '−' + s + 's'}</text>`);
+  }
+  // Horizontal grid every 0.5 energy + labels
+  const MAX_E = 2.5;
+  for (let e = 0; e <= MAX_E; e += 0.5) {
+    const y = marginT + (1 - e / MAX_E) * availH;
+    parts.push(`<line x1="${marginL}" y1="${y}" x2="${marginL + availW}" y2="${y}" class="grid"/>`);
+    parts.push(`<text x="${marginL - 10}" y="${y + 3}" class="axis" text-anchor="end">${e.toFixed(1)}</text>`);
+  }
+
+  const seriesArr = [...chartHistory.entries()]
+    .filter(([, pts]) => pts.length >= 2)
+    .sort((a, b) => (b[1][b[1].length - 1]?.e || 0) - (a[1][a[1].length - 1]?.e || 0))
+    .slice(0, 8);
+
+  if (seriesArr.length === 0) {
+    parts.push(`<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="empty">czekam na koncepty… (1s tick)</text>`);
+    svg.innerHTML = parts.join('');
+    return;
+  }
+
+  const usedLabelY = [];
+  seriesArr.forEach(([word, points]) => {
+    const hue = points[points.length - 1].h;
+    const color = `hsl(${hue}, 70%, 65%)`;
+    let path = '';
+    points.forEach((p, i) => {
+      const age = (now - p.ts) / winMs;
+      const x = marginL + (1 - age) * availW;
+      const y = marginT + (1 - Math.min(MAX_E, p.e) / MAX_E) * availH;
+      path += (i === 0 ? 'M' : 'L') + ` ${x.toFixed(1)} ${y.toFixed(1)} `;
+    });
+    parts.push(`<path d="${path}" stroke="${color}" stroke-width="1.8" fill="none" opacity="0.9"/>`);
+    // Live label at right edge, avoid overlap by nudging
+    const last = points[points.length - 1];
+    let yLast = marginT + (1 - Math.min(MAX_E, last.e) / MAX_E) * availH;
+    while (usedLabelY.some(uy => Math.abs(uy - yLast) < 16)) yLast += 16;
+    usedLabelY.push(yLast);
+    parts.push(`<circle cx="${marginL + availW}" cy="${marginT + (1 - Math.min(MAX_E, last.e) / MAX_E) * availH}" r="4" fill="${color}"/>`);
+    parts.push(`<text x="${marginL + availW + 12}" y="${yLast + 4}" fill="${color}" class="lbl">${escapeSvg(word)} · ${last.e.toFixed(2)}</text>`);
+  });
+
+  svg.innerHTML = parts.join('');
+}
 
 // autoboot: connect the auto-observer + do an immediate purge to catch
 // anything the session already ingested before the sanitize wiring landed.
