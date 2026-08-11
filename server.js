@@ -222,49 +222,72 @@ async function handleThink(req, res) {
 async function handleSkill(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-  const url = new URL(req.url, 'http://x');
-  const word = (url.searchParams.get('word') || '').slice(0, 60).trim();
+
+  // Accept both GET (word only, legacy) and POST { word, context }.
+  let word = '', context = null;
+  if (req.method === 'POST') {
+    const body = await readBody(req, 200_000);
+    try { const j = JSON.parse(body || '{}'); word = String(j.word || '').slice(0, 60); context = j.context || null; }
+    catch { res.writeHead(400); res.end('{"error":"bad json"}'); return; }
+  } else {
+    const url = new URL(req.url, 'http://x');
+    word = (url.searchParams.get('word') || '').slice(0, 60).trim();
+  }
   if (!word) { res.writeHead(400); res.end('{"error":"no word"}'); return; }
 
   const client = await getAnthropic();
-  let card = null;
-  if (client) {
-    try {
-      const msg = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        messages: [{ role: 'user', content:
-`Zamień pojęcie "${word}" w kartę mikro-skilla do praktykowania w codziennym życiu.
-Odpowiedz WYŁĄCZNIE JSON-em (bez otoczki, bez markdown code fences) o strukturze:
+  if (!client) { res.writeHead(503); res.end('{"error":"no ANTHROPIC_API_KEY in env"}'); return; }
+
+  const ctxBlock = context
+    ? `Kontekst z sesji:
+- narzędzia które wciągnęły ten koncept: ${(context.toolOrigins || []).join(', ') || '—'}
+- sąsiednie koncepty: ${(context.neighbors || []).join(', ') || '—'}
+- fragmenty ze strumienia:
+${(context.excerpts || []).map(e => '  · ' + e).join('\n') || '  —'}`
+    : `Brak kontekstu — pracujesz tylko z samym słowem.`;
+
+  try {
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      messages: [{ role: 'user', content:
+`Pojęcie "${word}" pojawiło się w czasie sesji rozwiązywania problemu technicznego.
+${ctxBlock}
+
+Zadanie: przełóż MECHANIZM który rozwiązał tu jakiś problem na wzorzec przydatny w REALNYM życiu poza kodem.
+Przykład dobrej abstrakcji:
+  koncept "auth token" → mechanizm: "krótkotrwały klucz zamiast długoterminowego hasła"
+  → wzorzec: "ograniczaj zakres uprawnień w czasie i w przestrzeni"
+  → zastosowanie: "gdy pożyczasz coś ważnego, ustal z góry termin zwrotu i konkretne użycie"
+
+Odpowiedz WYŁĄCZNIE poprawnym JSON (bez markdown fence, bez komentarza) o strukturze:
 {
-  "skill": "krótka, aspiracyjna nazwa umiejętności (max 4 słowa)",
-  "why": "jedno zdanie: co się zmieni, jeśli będę to praktykować",
-  "practice": ["3 konkretne praktyki w trybie rozkazującym", "każda 4-10 słów", "wykonalna dziś"],
-  "quote": "krótki cytat lub aforyzm oddający sedno (max 12 słów)"
+  "mechanism": "jedno zdanie: co ten koncept faktycznie robi/rozwiązuje w tym kontekście technicznym",
+  "pattern": "jedno zdanie: uogólniony wzorzec, oderwany od dziedziny",
+  "application": ["2-3 konkretne zastosowania w życiu poza kodem", "każde 1 zdanie", "praktyczne, nie duchowe"]
 }
-Odpowiedź po polsku. Bez emoji.` }],
-      });
-      const text = (msg.content?.[0]?.text || '').trim();
-      const m = text.match(/\{[\s\S]*\}/);
-      if (m) card = JSON.parse(m[0]);
-    } catch (e) { console.log('skill-gen error:', e.message); }
+Polski. Bez emoji. Bez fortune-cookie truizmów.` }],
+    });
+    const text = (msg.content?.[0]?.text || '').trim();
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('no JSON in response');
+    const card = JSON.parse(m[0]);
+    card.word = word; card.ts = Date.now();
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(card));
+  } catch (e) {
+    console.log('skill-gen error:', e.message);
+    res.writeHead(500); res.end(JSON.stringify({ error: e.message }));
   }
-  if (!card) {
-    card = {
-      skill: word.charAt(0).toUpperCase() + word.slice(1),
-      why: `Świadome uchwycenie "${word}" zmienia sposób, w jaki się nim posługujesz.`,
-      practice: [
-        `Nazwij "${word}" na głos, gdy je zauważysz w dziale dnia.`,
-        `Zapisz jeden konkretny przykład dziennie przez siedem dni.`,
-        `Zadaj sobie wieczorem: kiedy dziś zrobiłem to nieświadomie?`,
-      ],
-      quote: 'Uwaga jest wielokrotnie działającą dźwignią.',
-    };
-  }
-  card.word = word;
-  card.ts = Date.now();
-  res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(card));
+}
+
+function readBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > maxBytes) { req.destroy(); reject(new Error('too large')); }});
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
 }
 
 // --- Poster archive ------------------------------------------------------
