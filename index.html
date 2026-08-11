@@ -606,7 +606,7 @@ function addThought(text, opts) {
             z: seed.z + (Math.random() - 0.5) * 80,
             w: seed.w + (Math.random() - 0.5) * 80 }
         : randomOnHypersphere(120 + Math.random() * 140);
-      const targetR = 3 + Math.random() * 2;
+      const targetR = 1.6 + Math.random() * 1.2;
       const n = {
         word: w,
         x: p4.x, y: p4.y, z: p4.z, w: p4.w,
@@ -624,7 +624,7 @@ function addThought(text, opts) {
       spawnGlyph(n);
     } else {
       neurons[idx].energy = Math.min(2.2, neurons[idx].energy + 0.6);
-      neurons[idx].r = Math.min(9, neurons[idx].r + 0.15);
+      neurons[idx].targetR = Math.min(5.5, (neurons[idx].targetR ?? neurons[idx].r) + 0.08);
     }
     nodesThisThought.push(idx);
   }
@@ -886,12 +886,13 @@ function draw() {
     const p = projN[idx];
     const depth = p.depth;
     const bright = 55 + n.energy * 20;
-    const r = Math.max(1, n.r * depth);
+    // Sublinear depth scaling + hard cap keeps kulki tight even at macro dive.
+    const r = Math.max(0.6, Math.min(70, n.r * Math.pow(Math.max(0.15, depth), 0.7)));
     ctx.fillStyle = `hsla(${n.hue}, 85%, ${bright}%, ${(0.55 + n.energy * 0.25) * Math.min(1, depth)})`;
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
 
-    // glow halo, scaled by depth
-    const haloR = r * 6 * (0.4 + n.energy);
+    // glow halo, tighter than before (r*4 vs r*6) so ball edges stay clean
+    const haloR = r * 4 * (0.4 + n.energy);
     const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
     halo.addColorStop(0, `hsla(${n.hue}, 90%, 70%, ${0.35 * n.energy * depth})`);
     halo.addColorStop(1, 'rgba(0,0,0,0)');
