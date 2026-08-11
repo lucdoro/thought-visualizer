@@ -334,20 +334,24 @@ canvas#stage {
   width: 1px; height: 16px; background: rgba(255,255,255,0.15);
   margin: 0 6px;
 }
-.session-btn {
-  padding: 3px 8px !important;
-  font-size: 9px !important;
+.session-select {
+  appearance: none; -webkit-appearance: none;
+  background: rgba(123,77,255,0.14);
+  border: 1px solid rgba(181,140,255,0.3);
+  color: var(--text);
+  padding: 4px 20px 4px 10px;
+  border-radius: 999px;
   font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
   letter-spacing: 0.1em;
-  opacity: 0.55;
-  transition: opacity .12s;
+  cursor: pointer;
+  background-image: linear-gradient(135deg, transparent 45%, var(--text-dim) 45%, var(--text-dim) 55%, transparent 55%);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 6px 6px;
 }
-.session-btn:hover { opacity: 0.9; }
-.session-btn.is-active {
-  opacity: 1;
-  background: linear-gradient(180deg, var(--violet), var(--violet-lo));
-  border-color: var(--violet-hi);
-}
+.session-select:hover { border-color: var(--violet-hi); }
+.session-select option { background: #0d0820; color: var(--text); }
 
 /* --- Palette picker (from lucdoro.design) ------------------------------ */
 .palette-picker {
@@ -1471,14 +1475,13 @@ function renderSessionPicker() {
   const el = document.getElementById('sessionPicker');
   if (!el) return;
   const sessions = ['all', ...knownSessions];
-  el.innerHTML = sessions.map(s => {
-    const active = s === activeSession ? 'is-active' : '';
-    const label = s === 'all' ? 'all' : s;
-    return `<button class="btn session-btn ${active}" data-sid="${s}" title="session ${s}">${label}</button>`;
+  const opts = sessions.map(s => {
+    const label = s === 'all' ? `● all (${knownSessions.size})` : `◐ ${s}`;
+    const sel = s === activeSession ? 'selected' : '';
+    return `<option value="${s}" ${sel}>${label}</option>`;
   }).join('');
-  el.querySelectorAll('.session-btn').forEach(b => {
-    b.addEventListener('click', () => setActiveSession(b.dataset.sid));
-  });
+  el.innerHTML = `<select id="sessionSelect" class="session-select" title="wybierz wątek">${opts}</select>`;
+  el.querySelector('#sessionSelect').addEventListener('change', e => setActiveSession(e.target.value));
 }
 
 // =========================================================================
