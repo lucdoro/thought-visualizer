@@ -74,6 +74,183 @@ canvas#stage {
 .thoughtlog { display: none; }
 .thoughtlog__caret { display: none; }
 
+/* --- Narrative mode: 2-column full-screen text view ------------------- */
+.narrative-view {
+  position: fixed; inset: 0; z-index: 3;
+  display: none;
+  padding: 90px 30px 30px;
+  background: radial-gradient(ellipse at 50% 15%, #0d0820 0%, #07040f 55%, #000 100%);
+  grid-template-columns: 2fr 1fr;
+  gap: 22px;
+}
+.narrative-view.is-active { display: grid; }
+.narrative-col {
+  overflow-y: auto; overflow-x: hidden;
+  padding: 18px 24px 40px;
+  background: rgba(7,4,15,0.55);
+  border: 1px solid rgba(123,77,255,0.12);
+  border-radius: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(123,77,255,0.3) transparent;
+}
+.narrative-col::-webkit-scrollbar { width: 6px; }
+.narrative-col::-webkit-scrollbar-track { background: transparent; }
+.narrative-col::-webkit-scrollbar-thumb { background: rgba(123,77,255,0.3); border-radius: 3px; }
+.narrative-col__label {
+  position: sticky; top: 0;
+  padding: 2px 0 10px;
+  background: linear-gradient(180deg, rgba(7,4,15,0.95) 60%, transparent);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--violet-hi); opacity: 0.7;
+}
+.narrative__stream .empty, .narrative__distill .empty {
+  text-align: center; padding: 60px 0;
+  color: #6b5b8a;
+  font-family: 'Fraunces', serif; font-style: italic; font-size: 13px;
+}
+.chapter-block { margin-bottom: 6px; }
+.chapter-sep {
+  text-align: center;
+  color: #9a8fbe;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: 0.22em;
+  padding: 22px 0 6px;
+  border-top: 1px solid rgba(255,224,140,0.15);
+  margin-top: 20px;
+}
+.chapter-block:first-child .chapter-sep { border-top: 0; margin-top: 0; padding-top: 4px; }
+.chapter-prompt {
+  color: #ffe08c;
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-weight: 300;
+  font-size: 17px;
+  text-align: center;
+  padding: 4px 20px 14px;
+  line-height: 1.4;
+}
+.reasoning-block {
+  background: rgba(126,255,198,0.05);
+  border: 1px solid rgba(126,255,198,0.15);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 6px 0 12px;
+}
+.reasoning-block__header {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px; letter-spacing: 0.22em;
+  color: #7effc6; opacity: 0.7;
+  margin-bottom: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.reasoning-block__body {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-size: 12px;
+  color: #a8f0d0;
+  line-height: 1.6;
+}
+.reasoning-block.is-collapsed .reasoning-block__body { display: none; }
+.reasoning-block.is-collapsed .reasoning-block__toggle::before { content: '▸ '; }
+.reasoning-block:not(.is-collapsed) .reasoning-block__toggle::before { content: '▾ '; }
+.response-block {
+  color: #ffd28c;
+  font-family: 'Fraunces', serif;
+  font-weight: 300;
+  font-size: 14px;
+  line-height: 1.65;
+  margin: 4px 0 8px;
+  padding: 0 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.response-block b, .response-block strong { color: #fff3d6; font-weight: 500; }
+.response-block em { color: #ffe4b5; }
+.tool-chips-row { margin: 4px 0 6px; }
+.tool-chip {
+  display: inline-block;
+  background: rgba(181,140,255,0.14);
+  border: 1px solid rgba(181,140,255,0.18);
+  border-radius: 99px;
+  padding: 2px 10px;
+  margin: 2px 4px 2px 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: #cdb4ff;
+  vertical-align: middle;
+  cursor: default;
+  transition: background .1s;
+}
+.tool-chip:hover { background: rgba(181,140,255,0.24); }
+.concept-pill {
+  border-bottom: 1px dotted currentColor;
+  padding-bottom: 1px;
+  cursor: pointer;
+}
+.narrative-cursor {
+  display: inline-block;
+  width: 6px; height: 14px;
+  background: currentColor;
+  vertical-align: -2px;
+  margin-left: 2px;
+  animation: ncursor 1s steps(1) infinite;
+}
+@keyframes ncursor { 50% { opacity: 0; } }
+.narrative__distill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #e9e2ff;
+}
+.narrative__distill h5 {
+  color: #b58cff;
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 13px;
+  margin: 14px 0 4px;
+}
+.narrative__distill code { color: #7effc6; font-size: 10px; }
+.narrative__distill em { color: #9a8fbe; font-style: normal; font-size: 10px; }
+.narrative__distill p { margin: 2px 0 6px; }
+
+/* --- Metro Map view -------------------------------------------------- */
+.metro-view {
+  position: fixed; inset: 0; z-index: 3;
+  display: none;
+  padding: 90px 30px 30px;
+  background: radial-gradient(ellipse at 50% 15%, #0d0820 0%, #07040f 55%, #000 100%);
+  flex-direction: column;
+  gap: 12px;
+}
+.metro-view.is-active { display: flex; }
+.metro-view__title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--violet-hi); opacity: 0.7;
+  padding: 2px 4px 6px;
+}
+.metro-view__title em {
+  font-style: normal;
+  color: var(--text-dim);
+  margin-left: 12px;
+}
+.metro-svg-wrap {
+  flex: 1; min-height: 0;
+  background: #07040f;
+  border: 1px solid rgba(123,77,255,0.12);
+  border-radius: 10px;
+  overflow: hidden;
+}
+#metroSvg {
+  width: 100%; height: 100%; display: block;
+}
+#metroSvg text { user-select: none; }
+#metroSvg .station:hover circle { r: 9; }
+
 .control {
   position: fixed; z-index: 5;
   bottom: 22px; left: 50%; transform: translateX(-50%);
@@ -390,7 +567,8 @@ canvas#stage {
 </div>
 
 <div class="mode-pill">
-  <button class="btn is-active" data-mode="observe">auto-observe</button>
+  <button class="btn is-active" data-mode="observe">graph</button>
+  <button class="btn" data-mode="metro">metro</button>
   <button class="btn" data-mode="sim">demo</button>
 </div>
 
@@ -419,6 +597,13 @@ canvas#stage {
 </div>
 
 <div class="thoughtlog" id="thoughtlog"></div>
+
+<div class="metro-view" id="metroView">
+  <div class="metro-view__title">memory metro <em>· linie = klastry konceptów · stacje w kolejności pierwszego wystąpienia</em></div>
+  <div class="metro-svg-wrap">
+    <svg id="metroSvg" preserveAspectRatio="xMidYMid meet" viewBox="0 0 1200 700"></svg>
+  </div>
+</div>
 
 <div class="control">
   <input id="prompt" placeholder="daj mi problem do przemyślenia..." />
@@ -1352,9 +1537,17 @@ document.querySelectorAll('[data-mode]').forEach(b => {
     document.querySelectorAll('[data-mode]').forEach(x => x.classList.remove('is-active'));
     b.classList.add('is-active');
     currentMode = b.dataset.mode;
-    stopSim(); stopObserver();
-    if (currentMode === 'observe') startObserver();
-    else document.getElementById('statMode').textContent = 'demo';
+    stopSim(); // observer stays alive across mode changes so metro/graph stay in sync
+
+    const isMetro = currentMode === 'metro';
+    const isGraph = currentMode === 'observe' || currentMode === 'sim';
+    document.getElementById('stage').style.display = isMetro ? 'none' : 'block';
+    document.querySelector('.grain').style.display = isMetro ? 'none' : 'block';
+    document.getElementById('metroView')?.classList.toggle('is-active', isMetro);
+
+    if (currentMode === 'observe') { startObserver(); document.getElementById('statMode').textContent = 'observer'; }
+    else if (currentMode === 'metro') { startObserver(); renderMetroSVG(); document.getElementById('statMode').textContent = 'metro'; }
+    else { stopObserver(); document.getElementById('statMode').textContent = 'demo'; }
   });
 });
 document.getElementById('think').addEventListener('click', () => {
@@ -1981,6 +2174,127 @@ document.getElementById('purge').addEventListener('click', () => {
   const r = purgeSecrets();
   showCaption(`◈ wyczyszczono ${r.logEntries} wpisów logu, zostało ${r.neurons} neuronów`);
 });
+
+// ==========================================================================
+//   METRO MAP paradigm
+//   Cluster co-occurring concepts into subway "lines".  Each line runs
+//   horizontally with stations ordered by first-mention time.  Line colour
+//   comes from the dominant concept's hue.  A visible map that reads at a
+//   glance like a Tokyo transit diagram.
+// ==========================================================================
+
+function computeMetroLayout() {
+  // Collect eligible concept-neurons
+  const nodes = [];
+  const nodeAt = new Map(); // neuron-index → node-index
+  for (let i = 0; i < neurons.length; i++) {
+    const n = neurons[i];
+    if (n.tool || !n.word || n.word === 'user' || n.word.length <= 2) continue;
+    if (looksSecret(n.word)) continue;
+    nodeAt.set(i, nodes.length);
+    nodes.push({ neuronIdx: i, word: n.word, hue: n.hue, born: n.born, energy: n.energy });
+  }
+  if (nodes.length < 3) return [];
+
+  // Union-Find over strong synapses to cluster concepts.
+  const parent = nodes.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+  for (const s of synapses) {
+    if (s.strength < 0.18) continue;
+    const ai = nodeAt.get(s.a), bi = nodeAt.get(s.b);
+    if (ai == null || bi == null) continue;
+    union(ai, bi);
+  }
+  // Group by root, drop singletons.
+  const groups = new Map();
+  nodes.forEach((n, i) => {
+    const r = find(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(n);
+  });
+  const lines = [...groups.values()]
+    .filter(g => g.length >= 2)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 10);
+  // Sort each line's stations by first-mention time.
+  for (const line of lines) line.sort((a, b) => a.born - b.born);
+  return lines;
+}
+
+function renderMetroSVG() {
+  const svg = document.getElementById('metroSvg');
+  if (!svg) return;
+  const lines = computeMetroLayout();
+  const W = 1200, H = 700;
+  const marginL = 160, marginR = 40, marginT = 50, marginB = 70;
+  const availW = W - marginL - marginR;
+  const availH = H - marginT - marginB;
+
+  const parts = [`<defs><style>
+    .lbl { font-family: 'Manrope', 'Inter', sans-serif; font-size: 11px; font-weight: 500; fill: #e9e2ff; }
+    .lnm { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; }
+    .foot { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.15em; fill: #9a8fbe; }
+    .empty { font-family: 'Fraunces', serif; font-style: italic; font-size: 18px; fill: #6b5b8a; }
+  </style></defs>`];
+
+  if (lines.length === 0) {
+    parts.push(`<text x="${W/2}" y="${H/2}" text-anchor="middle" class="empty">czekam na klastry konceptów…</text>`);
+    parts.push(`<text x="${W/2}" y="${H/2 + 32}" text-anchor="middle" class="foot">potrzeba ≥2 połączonych konceptów per linia · min. synaps 0.18</text>`);
+    svg.innerHTML = parts.join('');
+    return;
+  }
+
+  const laneH = availH / lines.length;
+
+  lines.forEach((line, li) => {
+    const y = marginT + laneH * (li + 0.5);
+    const hue = line[0].hue;
+    const color = `hsl(${hue}, 65%, 65%)`;
+    const softColor = `hsla(${hue}, 65%, 65%, 0.25)`;
+
+    // X positions by time within this line's time-span.
+    const times = line.map(s => s.born);
+    const minT = Math.min(...times), maxT = Math.max(...times);
+    const range = Math.max(1, maxT - minT);
+    const posX = line.map(s => marginL + ((s.born - minT) / range) * availW);
+    // Nudge to avoid overlaps.
+    for (let i = 1; i < posX.length; i++) if (posX[i] - posX[i-1] < 60) posX[i] = posX[i-1] + 60;
+
+    // Line stroke — outer glow + inner line.
+    parts.push(`<path d="M ${posX[0]} ${y} L ${posX[posX.length-1]} ${y}" stroke="${softColor}" stroke-width="10" stroke-linecap="round" fill="none"/>`);
+    parts.push(`<path d="M ${posX[0]} ${y} L ${posX[posX.length-1]} ${y}" stroke="${color}" stroke-width="4" stroke-linecap="round" fill="none"/>`);
+
+    // Line name at the left margin.
+    const size = line.length;
+    parts.push(`<text x="${marginL - 14}" y="${y + 4}" text-anchor="end" class="lnm" fill="${color}">${size} · ${escapeSvg(line[0].word)}</text>`);
+
+    // Stations.
+    line.forEach((s, i) => {
+      const x = posX[i];
+      const isTerminus = (i === 0 || i === line.length - 1);
+      const r = isTerminus ? 8 : 6;
+      parts.push(`<g class="station"><circle cx="${x}" cy="${y}" r="${r}" fill="${color}" stroke="#07040f" stroke-width="2"/>`);
+      // Alternating label above/below so long lines don't overlap.
+      const above = (i % 2 === 0);
+      const ly = above ? y - 14 : y + 22;
+      parts.push(`<text x="${x}" y="${ly}" text-anchor="middle" class="lbl">${escapeSvg(s.word)}</text></g>`);
+    });
+  });
+
+  // Footer legend.
+  const totalStations = lines.reduce((a, l) => a + l.length, 0);
+  parts.push(`<text x="${marginL}" y="${H - 26}" class="foot">${lines.length} lines · ${totalStations} stations · ordered by first mention · terminus = larger circle</text>`);
+
+  svg.innerHTML = parts.join('');
+}
+
+function escapeSvg(s) { return String(s).replace(/[&<>"]/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m])); }
+
+// Re-render whenever metro mode is on.  Cheap even at 500+ neurons.
+setInterval(() => {
+  if (currentMode === 'metro') renderMetroSVG();
+}, 1500);
 
 // autoboot: connect the auto-observer + do an immediate purge to catch
 // anything the session already ingested before the sanitize wiring landed.
