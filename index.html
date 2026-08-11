@@ -594,14 +594,27 @@ function addThought(text, opts) {
   for (const w of meaningful) {
     let idx = concepts.get(w);
     if (idx === undefined) {
-      const rad = 90 + Math.random() * 220;
-      const p4 = randomOnHypersphere(rad);
+      // Spawn close to a related neighbour when one exists — otherwise on the
+      // hypersphere.  Cuts the "warp-in from nowhere" jolt of new nodes.
+      let seed = null;
+      if (nodesThisThought.length) {
+        seed = neurons[nodesThisThought[nodesThisThought.length - 1]];
+      }
+      const p4 = seed
+        ? { x: seed.x + (Math.random() - 0.5) * 80,
+            y: seed.y + (Math.random() - 0.5) * 80,
+            z: seed.z + (Math.random() - 0.5) * 80,
+            w: seed.w + (Math.random() - 0.5) * 80 }
+        : randomOnHypersphere(120 + Math.random() * 140);
+      const targetR = 3 + Math.random() * 2;
       const n = {
         word: w,
         x: p4.x, y: p4.y, z: p4.z, w: p4.w,
         vx: 0, vy: 0, vz: 0, vw: 0,
-        r: 3 + Math.random() * 2,
-        energy: 1.0,
+        r: 0.4,           // ramp up
+        targetR,
+        energy: 0.05,     // fade in
+        targetEnergy: 1.0,
         born: performance.now(),
         hue: hueOverride != null ? hueOverride + (Math.random() * 20 - 10) : hueForConcept(w),
       };
@@ -622,9 +635,9 @@ function addThought(text, opts) {
       const a = nodesThisThought[i], b = nodesThisThought[j];
       if (a === b) continue;
       let syn = synapses.find(s => (s.a === a && s.b === b) || (s.a === b && s.b === a));
-      if (!syn) { syn = { a, b, strength: 0.2, activity: 1.0 }; synapses.push(syn); }
-      syn.strength = Math.min(1, syn.strength + 0.15);
-      syn.activity = 1.0;
+      if (!syn) { syn = { a, b, strength: 0.02, targetStrength: 0.2, activity: 0.4 }; synapses.push(syn); }
+      syn.targetStrength = Math.min(1, (syn.targetStrength || syn.strength) + 0.15);
+      syn.activity = Math.min(1, syn.activity + 0.4);
       // spawn token particles along the edge
       particles.push({
         a, b, t: 0, speed: 0.6 + Math.random() * 0.8,
@@ -708,14 +721,32 @@ function stepPhysics(dt) {
     n.vy += -n.y * 0.00006 * dt;
     n.vz += -n.z * 0.00006 * dt;
     n.vw += -n.w * 0.00006 * dt;
-    // damping
-    n.vx *= 0.96; n.vy *= 0.96; n.vz *= 0.96; n.vw *= 0.96;
+    // Higher damping smooths out sudden shoves from births/cull events.
+    n.vx *= 0.985; n.vy *= 0.985; n.vz *= 0.985; n.vw *= 0.985;
+    // Cap speed per step so no single event throws a node across the scene.
+    const sp2 = n.vx*n.vx + n.vy*n.vy + n.vz*n.vz + n.vw*n.vw;
+    const MAX = 5.5;
+    if (sp2 > MAX*MAX) {
+      const k = MAX / Math.sqrt(sp2);
+      n.vx *= k; n.vy *= k; n.vz *= k; n.vw *= k;
+    }
     n.x += n.vx * dt * 0.06;
     n.y += n.vy * dt * 0.06;
     n.z += n.vz * dt * 0.06;
     n.w += n.vw * dt * 0.06;
-    n.energy *= 0.995;
-    n.r = Math.max(2.5, n.r * 0.9995);
+    // Ramp energy / radius toward their targets, then slowly decay.
+    if (n.targetEnergy != null && n.energy < n.targetEnergy) {
+      n.energy = Math.min(n.targetEnergy, n.energy + 0.04 * dt / 16);
+      if (n.energy >= n.targetEnergy - 0.02) n.targetEnergy = null;
+    } else {
+      n.energy *= 0.9965;
+    }
+    if (n.targetR != null && n.r < n.targetR) {
+      n.r = Math.min(n.targetR, n.r + 0.15 * dt / 16);
+      if (n.r >= n.targetR - 0.1) n.targetR = null;
+    } else {
+      n.r = Math.max(2.5, n.r * 0.9997);
+    }
   }
   // 4D repulsion (light; O(n^2) capped)
   const N = Math.min(neurons.length, 200);
@@ -725,7 +756,7 @@ function stepPhysics(dt) {
       const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, dw = b.w - a.w;
       const d2 = dx*dx + dy*dy + dz*dz + dw*dw + 0.1;
       if (d2 > 90000) continue;
-      const f = 320 / d2;
+      const f = 180 / d2;
       const dd = Math.sqrt(d2);
       const nx = dx/dd, ny = dy/dd, nz = dz/dd, nw = dw/dd;
       a.vx -= nx*f; a.vy -= ny*f; a.vz -= nz*f; a.vw -= nw*f;
@@ -736,10 +767,15 @@ function stepPhysics(dt) {
   for (const s of synapses) {
     const a = neurons[s.a], b = neurons[s.b];
     if (!a || !b) continue;
+    // ease strength toward target so new synapses tighten gradually
+    if (s.targetStrength != null) {
+      s.strength += (s.targetStrength - s.strength) * 0.04;
+      if (Math.abs(s.strength - s.targetStrength) < 0.01) s.targetStrength = null;
+    }
     const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, dw = b.w - a.w;
     const d = Math.sqrt(dx*dx + dy*dy + dz*dz + dw*dw);
     const target = 90 + (1 - s.strength) * 120;
-    const f = (d - target) * 0.0012 * s.strength;
+    const f = (d - target) * 0.0009 * s.strength;
     const inv = 1 / (d + 0.01);
     const nx = dx * inv, ny = dy * inv, nz = dz * inv, nw = dw * inv;
     a.vx += nx*f; a.vy += ny*f; a.vz += nz*f; a.vw += nw*f;

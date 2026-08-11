@@ -1,0 +1,103 @@
+<h2>SIMULATE — jak "osobno" na wizualizatorze?</h2>
+<p class="subtitle">Dziś SIMULATE i AUTO-OBSERVE dzielą ten sam canvas i ten sam stan neuronów. Chcesz je rozdzielić — pytanie tylko jak.</p>
+
+<style>
+  .demo { background: #07040f; border-radius: 8px; padding: 12px; height: 180px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .brain { border-radius: 50%; background: radial-gradient(circle, rgba(181,140,255,0.4), transparent 70%); }
+  .brain--observe { background: radial-gradient(circle, rgba(255,210,140,0.45), transparent 70%); }
+  .brain--sim { background: radial-gradient(circle, rgba(126,255,198,0.4), transparent 70%); }
+  .brain--mixed { background: radial-gradient(circle, rgba(181,140,255,0.4), transparent 70%),
+                              radial-gradient(circle, rgba(126,255,198,0.3), transparent 70%); }
+  .dot { position:absolute; width:5px; height:5px; border-radius:50%; }
+  .dot--v { background:#b58cff; box-shadow:0 0 6px #b58cff; }
+  .dot--g { background:#7effc6; box-shadow:0 0 6px #7effc6; }
+  .dot--o { background:#ffd28c; box-shadow:0 0 6px #ffd28c; }
+  .label-tag { position:absolute; top:8px; left:10px; font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:#9a8fbe; font-family:monospace; }
+  .label-tag--r { left:auto; right:10px; }
+</style>
+
+<div class="cards" data-columns="2">
+
+  <div class="card" data-choice="split" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:8px; background:#0d0820; border-radius:8px;">
+        <div class="demo">
+          <span class="label-tag">observe</span>
+          <div class="brain brain--observe" style="width:80px;height:80px"></div>
+          <div class="dot dot--o" style="top:30px;left:30%"></div>
+          <div class="dot dot--o" style="top:50px;left:60%"></div>
+        </div>
+        <div class="demo">
+          <span class="label-tag">simulate</span>
+          <div class="brain brain--sim" style="width:80px;height:80px"></div>
+          <div class="dot dot--g" style="top:40px;left:35%"></div>
+          <div class="dot dot--g" style="top:60px;left:70%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Split canvas — dwa mózgi obok</h3>
+      <p>Pionowy podział. Po lewej realna sesja, po prawej symulacja — nigdy się nie mieszają, każdy ma swój zoom/rotację/stream.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="pip" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="demo" style="height:180px">
+        <span class="label-tag">observe</span>
+        <div class="brain brain--observe" style="width:140px;height:140px"></div>
+        <div class="dot dot--o" style="top:50px;left:30%"></div>
+        <div class="dot dot--o" style="top:80px;left:60%"></div>
+        <div class="dot dot--o" style="top:110px;left:45%"></div>
+        <div style="position:absolute; bottom:12px; right:12px; width:100px; height:70px; border:1px solid rgba(126,255,198,0.4); border-radius:6px; background:#07040f; display:flex; align-items:center; justify-content:center;">
+          <span class="label-tag" style="top:4px;left:6px;font-size:7px">sim</span>
+          <div class="brain brain--sim" style="width:40px;height:40px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Picture-in-Picture — sim w rogu</h3>
+      <p>Observer na całym ekranie, symulacja w małej ramce w rogu (rozciągalnej). Możesz sobie mrugnąć na demo bez przełączania.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="toggle" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="demo">
+        <span class="label-tag">observe (paused)</span>
+        <span class="label-tag label-tag--r" style="color:#7effc6">simulate ▶</span>
+        <div style="opacity:0.15" class="brain brain--observe" style="width:80px;height:80px"></div>
+        <div class="brain brain--sim" style="width:130px;height:130px; position:absolute;"></div>
+        <div class="dot dot--g" style="top:40px;left:35%"></div>
+        <div class="dot dot--g" style="top:80px;left:55%"></div>
+        <div class="dot dot--g" style="top:110px;left:40%"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Toggle — jeden canvas, dwa stany</h3>
+      <p>Przełącznik zamraża observer'a i pokazuje osobny, izolowany stan symulacji. Powrót przywraca observer'a bez utraty neuronów.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="lane" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="demo">
+        <span class="label-tag">observe + sim (hue-lane)</span>
+        <div class="brain brain--mixed" style="width:150px;height:150px"></div>
+        <div class="dot dot--o" style="top:40px;left:30%"></div>
+        <div class="dot dot--o" style="top:80px;left:55%"></div>
+        <div class="dot dot--o" style="top:110px;left:45%"></div>
+        <div class="dot dot--g" style="top:50px;left:65%"></div>
+        <div class="dot dot--g" style="top:90px;left:30%"></div>
+        <div class="dot dot--g" style="top:120px;left:70%"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>D. Hue-lane — razem, ale odróżnione barwą</h3>
+      <p>Ten sam canvas, obie sesje. Observer w fioletach, symulacja w miętach. Rosną obok siebie, mogą się (opcjonalnie) łączyć synapsami.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:24px">Kliknij wariant. Można wybrać kilka — powiedz w terminalu która najbardziej rezonuje.</p>
