@@ -226,15 +226,7 @@ canvas#stage {
   flex-direction: column;
   gap: 12px;
 }
-.metro-view.is-active, .chart-view.is-active { display: flex; }
-.chart-view {
-  position: fixed; inset: 0; z-index: 3;
-  display: none;
-  padding: 90px 30px 30px;
-  background: radial-gradient(ellipse at 50% 15%, #0d0820 0%, #07040f 55%, #000 100%);
-  flex-direction: column;
-  gap: 12px;
-}
+.metro-view.is-active { display: flex; }
 .metro-view__title {
   font-family: 'JetBrains Mono', monospace;
   font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
@@ -576,8 +568,7 @@ canvas#stage {
 
 <div class="mode-pill">
   <button class="btn is-active" data-mode="observe">graph</button>
-  <button class="btn" data-mode="metro">metro</button>
-  <button class="btn" data-mode="chart">chart</button>
+  <button class="btn" data-mode="metro">spores</button>
   <button class="btn" data-mode="sim">demo</button>
 </div>
 
@@ -607,18 +598,9 @@ canvas#stage {
 
 <div class="thoughtlog" id="thoughtlog"></div>
 
-<div class="chart-view" id="chartView">
-  <div class="metro-view__title">
-    live chart <em>· giełdowy widok · 1s tick · przewijanie w lewo · Y = energia konceptu · X = ostatnie 60s</em>
-  </div>
-  <div class="metro-svg-wrap">
-    <svg id="chartSvg" preserveAspectRatio="none"></svg>
-  </div>
-</div>
-
 <div class="metro-view" id="metroView">
   <div class="metro-view__title">
-    memory metro <em>· linie = klastry · stacje wg czasu · wysokość = ciężkość lingwistyczna</em>
+    memory spores <em>· kolonie = klastry konceptów · rdzeń = najgorętszy koncept · promienie do sąsiadów</em>
     <span style="float:right; display:flex; gap:6px; align-items:center">
       <button class="btn btn--ghost" id="metroFit" style="padding:3px 10px; font-size:9px">fit</button>
       <button class="btn btn--ghost" id="metroZoomOut" style="padding:3px 8px; font-size:11px">−</button>
@@ -671,7 +653,6 @@ function resize() {
 window.addEventListener('resize', () => {
   resize();
   if (currentMode === 'metro') renderMetroSVG();
-  if (currentMode === 'chart') renderChartSVG();
 }); resize();
 
 // --- 4D Camera -----------------------------------------------------------
@@ -1581,23 +1562,15 @@ document.querySelectorAll('[data-mode]').forEach(b => {
     stopSim();
 
     const isMetro = currentMode === 'metro';
-    const isChart = currentMode === 'chart';
-    const isOverlay = isMetro || isChart;
-    document.getElementById('stage').style.display = isOverlay ? 'none' : 'block';
-    document.querySelector('.grain').style.display = isOverlay ? 'none' : 'block';
+    document.getElementById('stage').style.display = isMetro ? 'none' : 'block';
+    document.querySelector('.grain').style.display = isMetro ? 'none' : 'block';
     document.getElementById('metroView')?.classList.toggle('is-active', isMetro);
-    document.getElementById('chartView')?.classList.toggle('is-active', isChart);
 
     if (currentMode === 'observe') { startObserver(); document.getElementById('statMode').textContent = 'observer'; }
     else if (currentMode === 'metro') {
       startObserver();
       requestAnimationFrame(() => requestAnimationFrame(renderMetroSVG));
-      document.getElementById('statMode').textContent = 'metro';
-    }
-    else if (currentMode === 'chart') {
-      startObserver();
-      requestAnimationFrame(() => requestAnimationFrame(renderChartSVG));
-      document.getElementById('statMode').textContent = 'chart';
+      document.getElementById('statMode').textContent = 'spores';
     }
     else { stopObserver(); document.getElementById('statMode').textContent = 'demo'; }
   });
@@ -2343,101 +2316,111 @@ function renderMetroSVG() {
   }
 }
 function _renderMetroSVGInner(svg, rect) {
-
-  const lines = computeMetroLayout();
-  const marginL = 200, marginR = 80, marginT = 70, marginB = 100;
-  // "Wektor ciężkości lingwistycznej" — sort lines by total energy.
-  // Heaviest concepts sit on the top layer.
-  lines.forEach(line => {
-    line.weight = line.reduce((sum, s) => sum + (s.energy || 1), 0);
-  });
-  lines.sort((a, b) => b.weight - a.weight);
-  // Layout scales to container: lanes divide the vertical space, stations
-  // are placed on a normalised time axis across the horizontal space.
+  const clusters = computeMetroLayout();
   const W = rect.width;
   const H = rect.height;
-  const availW = W - marginL - marginR;
-  const availH = H - marginT - marginB;
-  const laneH = availH / Math.max(1, lines.length);
-
-  // Fit-to-view unless user has zoomed/panned manually.
   svg.setAttribute('viewBox', `${-metroPan.x} ${-metroPan.y} ${W / metroZoom} ${H / metroZoom}`);
 
-  const parts = [`<defs><style>
-    .lbl { font-family: 'Manrope', 'Inter', sans-serif; font-size: 13px; font-weight: 500; fill: #e9e2ff; }
-    .lnm { font-family: 'Bricolage Grotesque', 'Manrope', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
-    .weight { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.15em; fill: #6b5b8a; }
-    .foot { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.15em; fill: #9a8fbe; }
-    .empty { font-family: 'Instrument Serif', 'Fraunces', serif; font-style: italic; font-size: 22px; fill: #6b5b8a; }
-    .layer-band { fill: rgba(123,77,255,0.02); }
-    .layer-band-alt { fill: rgba(123,77,255,0.04); }
-  </style></defs>`];
+  const FONT_POOL = [
+    { family: "'Manrope', sans-serif",                 weight: 500, size: 12, italic: '' },
+    { family: "'Fraunces', 'Instrument Serif', serif", weight: 400, size: 13, italic: 'italic' },
+    { family: "'Bricolage Grotesque', sans-serif",     weight: 700, size: 12, italic: '' },
+    { family: "'JetBrains Mono', monospace",           weight: 400, size: 11, italic: '' },
+    { family: "'Instrument Serif', serif",             weight: 400, size: 14, italic: 'italic' },
+  ];
 
-  if (lines.length === 0) {
-    const total = neurons.filter(n => n.word && !n.tool && n.word !== 'user').length;
-    parts.push(`<text x="${W/2}" y="${H/2 - 20}" text-anchor="middle" class="empty">brak połączonych konceptów</text>`);
-    parts.push(`<text x="${W/2}" y="${H/2 + 20}" text-anchor="middle" class="foot">masz ${total} konceptów, ale żaden nie ma jeszcze synapsy o sile ≥ 0.04</text>`);
-    parts.push(`<text x="${W/2}" y="${H/2 + 46}" text-anchor="middle" class="foot">napisz kilka pytań / poczekaj na koincydencje w strumieniu</text>`);
+  const parts = [`<defs>
+    <style>
+      .foot { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.15em; fill: #9a8fbe; }
+      .empty { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 22px; fill: #6b5b8a; }
+    </style>
+  </defs>`];
+
+  if (clusters.length === 0) {
+    parts.push(`<text x="${W/2}" y="${H/2}" text-anchor="middle" class="empty">czekam na spory…</text>`);
+    parts.push(`<text x="${W/2}" y="${H/2 + 30}" text-anchor="middle" class="foot">koncepty pojawią się jako spory, klastry jako kolonie</text>`);
     svg.innerHTML = parts.join('');
     return;
   }
 
-  // Background layer bands so each depth level is visually distinct.
-  lines.forEach((_, li) => {
-    const y = marginT + laneH * li;
-    parts.push(`<rect x="0" y="${y}" width="${W}" height="${laneH}" class="${li % 2 ? 'layer-band-alt' : 'layer-band'}"/>`);
-  });
+  // Sort clusters by mass so biggest colonies get first pick of space.
+  clusters.forEach(c => c.mass = c.reduce((s, x) => s + (x.energy || 1), 0) * Math.sqrt(c.length));
+  clusters.sort((a, b) => b.mass - a.mass);
 
-  const maxWeight = Math.max(...lines.map(l => l.weight));
+  // Pack colonies into a grid sized to container aspect ratio.
+  const N = clusters.length;
+  const cols = Math.max(1, Math.round(Math.sqrt(N * (W / H) * 1.4)));
+  const rows = Math.ceil(N / cols);
+  const cellW = W / cols;
+  const cellH = H / rows;
 
-  lines.forEach((line, li) => {
-    const y = marginT + laneH * (li + 0.5);
-    const hue = line[0].hue;
-    const color = `hsl(${hue}, 65%, 65%)`;
-    const softColor = `hsla(${hue}, 65%, 65%, 0.25)`;
+  const sporeCircles = [];   // rendered stations
+  const armPaths = [];       // curved arms
+  const coreHalos = [];      // subtle glow behind colony core
 
-    // X positions by time within this line's time-span.
-    const times = line.map(s => s.born);
-    const minT = Math.min(...times), maxT = Math.max(...times);
-    const range = Math.max(1, maxT - minT);
-    const posX = line.map(s => marginL + ((s.born - minT) / range) * availW);
-    // Nudge to avoid overlaps.
-    for (let i = 1; i < posX.length; i++) if (posX[i] - posX[i-1] < stationSpacing * 0.8) posX[i] = posX[i-1] + stationSpacing * 0.8;
+  clusters.forEach((cluster, ci) => {
+    const col = ci % cols;
+    const row = Math.floor(ci / cols);
+    // Slight jitter so a grid of clusters doesn't look mechanical.
+    const jitter = ((hashWord(cluster[0].word)) % 40) - 20;
+    const cx = cellW * (col + 0.5) + jitter * 0.4;
+    const cy = cellH * (row + 0.5) + jitter * 0.3;
+    // Colony radius grows with station count, capped to fit cell.
+    const colonyR = Math.min(cellW, cellH) * 0.36 * Math.min(1, Math.sqrt(cluster.length) / 2.5);
 
-    // Line stroke — outer glow + inner line.
-    parts.push(`<path d="M ${posX[0]} ${y} L ${posX[posX.length-1]} ${y}" stroke="${softColor}" stroke-width="10" stroke-linecap="round" fill="none"/>`);
-    parts.push(`<path d="M ${posX[0]} ${y} L ${posX[posX.length-1]} ${y}" stroke="${color}" stroke-width="4" stroke-linecap="round" fill="none"/>`);
+    // Core = highest-energy concept; sits at cluster centre.
+    const stations = [...cluster].sort((a, b) => b.energy - a.energy);
+    const core = stations[0];
+    core.pos = { x: cx, y: cy };
+    core.isCore = true;
 
-    // Line name at the left margin + weight indicator (higher = heavier).
-    const size = line.length;
-    const weightPct = Math.round((line.weight / maxWeight) * 100);
-    parts.push(`<text x="${marginL - 14}" y="${y - 2}" text-anchor="end" class="lnm" fill="${color}">${size} · ${escapeSvg(line[0].word)}</text>`);
-    parts.push(`<text x="${marginL - 14}" y="${y + 14}" text-anchor="end" class="weight">weight ${weightPct}%</text>`);
+    // Spiral other stations around core so overlaps are rare.
+    for (let j = 1; j < stations.length; j++) {
+      const t = (j - 1) / Math.max(1, stations.length - 1);
+      const angle = t * Math.PI * 2 + (hashWord(stations[j].word) % 100) / 100 * 0.6;
+      const ringR = colonyR * (0.55 + 0.45 * (j / stations.length));
+      stations[j].pos = {
+        x: cx + Math.cos(angle) * ringR,
+        y: cy + Math.sin(angle) * ringR,
+      };
+    }
 
-    // Stations.  Each concept gets a font chosen deterministically from
-    // its hue so the map has typographic variety without random flicker.
-    const FONT_POOL = [
-      { family: "'Manrope', sans-serif",                weight: 500, size: 13, italic: '' },
-      { family: "'Fraunces', 'Instrument Serif', serif", weight: 400, size: 14, italic: 'italic' },
-      { family: "'Bricolage Grotesque', sans-serif",    weight: 700, size: 13, italic: '' },
-      { family: "'JetBrains Mono', monospace",          weight: 400, size: 12, italic: '' },
-      { family: "'Instrument Serif', serif",            weight: 400, size: 15, italic: 'italic' },
-    ];
-    line.forEach((s, i) => {
-      const x = posX[i];
-      const isTerminus = (i === 0 || i === line.length - 1);
-      const r = isTerminus ? 8 : 6;
+    const hue = core.hue;
+    coreHalos.push(`<circle cx="${cx}" cy="${cy}" r="${colonyR * 1.35}" fill="hsl(${hue|0}, 70%, 55%)" fill-opacity="0.04"/>`);
+    coreHalos.push(`<circle cx="${cx}" cy="${cy}" r="${colonyR * 1.6}" fill="hsl(${hue|0}, 70%, 55%)" fill-opacity="0.015"/>`);
+
+    // Arms: curved bezier from core to each spore.
+    for (let j = 1; j < stations.length; j++) {
+      const s = stations[j];
+      const mx = (core.pos.x + s.pos.x) / 2;
+      const my = (core.pos.y + s.pos.y) / 2;
+      const dx = s.pos.x - core.pos.x, dy = s.pos.y - core.pos.y;
+      const bend = 0.18;
+      const bx = mx + (-dy) * bend;
+      const by = my + ( dx) * bend;
+      armPaths.push(`<path d="M ${core.pos.x.toFixed(1)} ${core.pos.y.toFixed(1)} Q ${bx.toFixed(1)} ${by.toFixed(1)} ${s.pos.x.toFixed(1)} ${s.pos.y.toFixed(1)}" stroke="hsla(${hue|0}, 70%, 65%, 0.35)" stroke-width="1.4" fill="none"/>`);
+    }
+
+    // Store spores for later drawing (so arms render below dots).
+    for (let j = 0; j < stations.length; j++) {
+      const s = stations[j];
+      const isCore = j === 0;
+      const rDot = isCore ? 10 + Math.min(8, s.energy * 3) : 3.5 + Math.min(6, s.energy * 2);
+      const color = `hsl(${s.hue|0}, 70%, 68%)`;
+      if (isCore) {
+        sporeCircles.push(`<circle cx="${s.pos.x.toFixed(1)}" cy="${s.pos.y.toFixed(1)}" r="${(rDot * 2.4).toFixed(1)}" fill="hsl(${s.hue|0}, 80%, 70%)" fill-opacity="0.14"/>`);
+      }
+      sporeCircles.push(`<circle cx="${s.pos.x.toFixed(1)}" cy="${s.pos.y.toFixed(1)}" r="${rDot.toFixed(1)}" fill="${color}" stroke="#07040f" stroke-width="1.5"/>`);
       const font = FONT_POOL[Math.abs(hashWord(s.word)) % FONT_POOL.length];
-      parts.push(`<g class="station"><circle cx="${x}" cy="${y}" r="${r}" fill="${color}" stroke="#07040f" stroke-width="2"/>`);
-      const above = (i % 2 === 0);
-      const ly = above ? y - 14 : y + 22;
-      parts.push(`<text x="${x}" y="${ly}" text-anchor="middle" fill="#e9e2ff" font-family=${JSON.stringify(font.family)} font-size="${font.size}" font-weight="${font.weight}" font-style="${font.italic}">${escapeSvg(s.word)}</text></g>`);
-    });
+      const labelY = s.pos.y + rDot + 12;
+      sporeCircles.push(`<text x="${s.pos.x.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle" fill="${isCore ? '#fff8e0' : '#e9e2ff'}" font-family=${JSON.stringify(font.family)} font-size="${font.size + (isCore ? 3 : 0)}" font-weight="${isCore ? 500 : font.weight}" font-style="${font.italic}">${escapeSvg(s.word)}</text>`);
+    }
   });
 
-  // Footer legend.
-  const totalStations = lines.reduce((a, l) => a + l.length, 0);
-  parts.push(`<text x="${marginL}" y="${H - 26}" class="foot">${lines.length} lines · ${totalStations} stations · ordered by first mention · terminus = larger circle</text>`);
+  parts.push(...coreHalos, ...armPaths, ...sporeCircles);
+
+  const totalStations = clusters.reduce((a, c) => a + c.length, 0);
+  parts.push(`<text x="20" y="${H - 20}" class="foot">${clusters.length} colonies · ${totalStations} spores</text>`);
 
   svg.innerHTML = parts.join('');
 }
@@ -2473,108 +2456,7 @@ setInterval(() => {
   if (currentMode === 'metro') renderMetroSVG();
 }, 1500);
 
-// ==========================================================================
-//   LIVE CHART — stock-market-style scrolling time series
-//   Every second, snapshot the top-N concepts' energy and append to their
-//   history buffer.  Render a scrolling chart with newest values pinned
-//   to the right edge; old points scroll off the left after ~60s.
-// ==========================================================================
-const chartHistory = new Map();
-const CHART_WINDOW_S = 60;
-const CHART_TICK_MS = 1000;
-
-setInterval(() => {
-  const now = Date.now();
-  const top = neurons
-    .filter(n => n.word && !n.tool && n.word !== 'user' && !looksSecret(n.word))
-    .sort((a, b) => b.energy - a.energy)
-    .slice(0, 8);
-  const activeSet = new Set(top.map(n => n.word));
-  for (const n of top) {
-    if (!chartHistory.has(n.word)) chartHistory.set(n.word, []);
-    const arr = chartHistory.get(n.word);
-    arr.push({ ts: now, e: n.energy, h: n.hue });
-    const cutoff = now - CHART_WINDOW_S * 1000;
-    while (arr.length && arr[0].ts < cutoff) arr.shift();
-  }
-  // trim inactive series
-  for (const [word, arr] of chartHistory) {
-    if (!activeSet.has(word) && arr[arr.length - 1]?.ts < now - CHART_WINDOW_S * 1000) {
-      chartHistory.delete(word);
-    }
-  }
-  if (currentMode === 'chart') renderChartSVG();
-}, CHART_TICK_MS);
-
-function renderChartSVG() {
-  const svg = document.getElementById('chartSvg');
-  if (!svg) return;
-  const wrap = svg.parentElement;
-  const rect = wrap.getBoundingClientRect();
-  if (rect.width < 100 || rect.height < 100) return;
-  const W = rect.width, H = rect.height;
-  const marginL = 90, marginR = 200, marginT = 40, marginB = 40;
-  const availW = W - marginL - marginR;
-  const availH = H - marginT - marginB;
-  const now = Date.now();
-  const winMs = CHART_WINDOW_S * 1000;
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-
-  const parts = [`<defs><style>
-    .grid { stroke: rgba(123,77,255,0.08); stroke-width: 1; }
-    .axis { fill: #6b5b8a; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.1em; }
-    .lbl { font-family: 'Manrope', sans-serif; font-size: 11px; font-weight: 500; }
-    .empty { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 20px; fill: #6b5b8a; }
-  </style></defs>`];
-
-  // Vertical grid every 10s + labels
-  for (let s = 0; s <= CHART_WINDOW_S; s += 10) {
-    const x = marginL + (1 - s / CHART_WINDOW_S) * availW;
-    parts.push(`<line x1="${x}" y1="${marginT}" x2="${x}" y2="${marginT + availH}" class="grid"/>`);
-    parts.push(`<text x="${x}" y="${H - 14}" class="axis" text-anchor="middle">${s === 0 ? 'now' : '−' + s + 's'}</text>`);
-  }
-  // Horizontal grid every 0.5 energy + labels
-  const MAX_E = 2.5;
-  for (let e = 0; e <= MAX_E; e += 0.5) {
-    const y = marginT + (1 - e / MAX_E) * availH;
-    parts.push(`<line x1="${marginL}" y1="${y}" x2="${marginL + availW}" y2="${y}" class="grid"/>`);
-    parts.push(`<text x="${marginL - 10}" y="${y + 3}" class="axis" text-anchor="end">${e.toFixed(1)}</text>`);
-  }
-
-  const seriesArr = [...chartHistory.entries()]
-    .filter(([, pts]) => pts.length >= 2)
-    .sort((a, b) => (b[1][b[1].length - 1]?.e || 0) - (a[1][a[1].length - 1]?.e || 0))
-    .slice(0, 8);
-
-  if (seriesArr.length === 0) {
-    parts.push(`<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="empty">czekam na koncepty… (1s tick)</text>`);
-    svg.innerHTML = parts.join('');
-    return;
-  }
-
-  const usedLabelY = [];
-  seriesArr.forEach(([word, points]) => {
-    const hue = points[points.length - 1].h;
-    const color = `hsl(${hue}, 70%, 65%)`;
-    let path = '';
-    points.forEach((p, i) => {
-      const age = (now - p.ts) / winMs;
-      const x = marginL + (1 - age) * availW;
-      const y = marginT + (1 - Math.min(MAX_E, p.e) / MAX_E) * availH;
-      path += (i === 0 ? 'M' : 'L') + ` ${x.toFixed(1)} ${y.toFixed(1)} `;
-    });
-    parts.push(`<path d="${path}" stroke="${color}" stroke-width="1.8" fill="none" opacity="0.9"/>`);
-    // Live label at right edge, avoid overlap by nudging
-    const last = points[points.length - 1];
-    let yLast = marginT + (1 - Math.min(MAX_E, last.e) / MAX_E) * availH;
-    while (usedLabelY.some(uy => Math.abs(uy - yLast) < 16)) yLast += 16;
-    usedLabelY.push(yLast);
-    parts.push(`<circle cx="${marginL + availW}" cy="${marginT + (1 - Math.min(MAX_E, last.e) / MAX_E) * availH}" r="4" fill="${color}"/>`);
-    parts.push(`<text x="${marginL + availW + 12}" y="${yLast + 4}" fill="${color}" class="lbl">${escapeSvg(word)} · ${last.e.toFixed(2)}</text>`);
-  });
-
-  svg.innerHTML = parts.join('');
-}
+// chart mode removed — memory spores replaced it
 
 // autoboot: connect the auto-observer + do an immediate purge to catch
 // anything the session already ingested before the sanitize wiring landed.
