@@ -20,6 +20,38 @@
   --text: #e9e2ff;
   --text-dim: #9a8fbe;
 }
+/* Palettes lifted from lucdoro.design (data-palette=combo01-05, dark theme).
+   Toggle via the picker in top-right; choice persists in localStorage. */
+body[data-palette="ocean"] {   /* combo01 · #28469E + #CAE8E8 · WA #FF7B85 */
+  --bg-0: #14224d; --bg-1: #28469e;
+  --violet: #4b6ac0; --violet-hi: #cae8e8; --violet-lo: #1e3680;
+  --text: #cae8e8; --text-dim: #a0c4c4; --dim: #6a8a8a;
+  --gold: #ff7b85; --mint: #cae8e8;
+}
+body[data-palette="sunset"] {  /* combo02 · #3E0856 + #FAAE62 · WA #00E5A0 */
+  --bg-0: #1f042b; --bg-1: #3e0856;
+  --violet: #7a2896; --violet-hi: #faae62; --violet-lo: #4e1866;
+  --text: #faae62; --text-dim: #e09e52; --dim: #8e6e42;
+  --gold: #ffd28c; --mint: #00e5a0;
+}
+body[data-palette="sky"] {     /* combo03 · #04344C + #B0EDF9 · WA #FFB74D */
+  --bg-0: #02202f; --bg-1: #04344c;
+  --violet: #2a5a72; --violet-hi: #b0edf9; --violet-lo: #14546c;
+  --text: #b0edf9; --text-dim: #88cde0; --dim: #587888;
+  --gold: #ffb74d; --mint: #b0edf9;
+}
+body[data-palette="milano"] {  /* combo04 · #A90E02 + #FFFBD4 · WA #00E5C4 */
+  --bg-0: #6a0801; --bg-1: #a90e02;
+  --violet: #c93828; --violet-hi: #fffbd4; --violet-lo: #8a0a02;
+  --text: #fffbd4; --text-dim: #e0c8a0; --dim: #a08858;
+  --gold: #fffbd4; --mint: #00e5c4;
+}
+body[data-palette="neon"] {    /* combo05 · #0C1E29 + #FFFE15 · WA #FF3A9E */
+  --bg-0: #050d13; --bg-1: #0c1e29;
+  --violet: #3e5e69; --violet-hi: #fffe15; --violet-lo: #182e39;
+  --text: #fffe15; --text-dim: #c0be55; --dim: #6a8090;
+  --gold: #ff3a9e; --mint: #fffe15;
+}
 * { box-sizing: border-box; }
 html, body {
   margin: 0; padding: 0; height: 100%; width: 100%;
@@ -312,6 +344,29 @@ canvas#stage {
   padding: 5px 12px; font-size: 10px; border: 0;
 }
 
+/* --- Palette picker (from lucdoro.design) ------------------------------ */
+.palette-picker {
+  position: fixed; top: 70px; right: 26px;
+  z-index: 6;
+  display: flex; gap: 6px;
+  padding: 5px 8px;
+  background: rgba(13,8,32,0.5);
+  border: 1px solid rgba(123,77,255,0.2);
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+}
+.palette-picker__dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.15);
+  cursor: pointer;
+  transition: transform .12s;
+}
+.palette-picker__dot:hover { transform: scale(1.2); }
+.palette-picker__dot.is-active {
+  box-shadow: 0 0 0 2px var(--violet-hi), 0 0 12px rgba(255,255,255,0.4);
+  transform: scale(1.15);
+}
+
 /* --- Skill card modal --------------------------------------------------- */
 .skill-modal {
   position: fixed; z-index: 20; inset: 0;
@@ -570,6 +625,15 @@ canvas#stage {
   <button class="btn is-active" data-mode="observe">graph</button>
   <button class="btn" data-mode="metro">spores</button>
   <button class="btn" data-mode="sim">demo</button>
+</div>
+
+<div class="palette-picker" id="palettePicker" title="paleta z lucdoro.design">
+  <span class="palette-picker__dot is-active" data-palette=""       style="background:#7b4dff" title="default (violet)"></span>
+  <span class="palette-picker__dot"           data-palette="ocean"  style="background:#28469e" title="ocean"></span>
+  <span class="palette-picker__dot"           data-palette="sunset" style="background:#faae62" title="sunset"></span>
+  <span class="palette-picker__dot"           data-palette="sky"    style="background:#b0edf9" title="sky"></span>
+  <span class="palette-picker__dot"           data-palette="milano" style="background:#a90e02" title="milano"></span>
+  <span class="palette-picker__dot"           data-palette="neon"   style="background:#fffe15" title="neon"></span>
 </div>
 
 <div class="hud" style="top:70px;left:50%;transform:translateX(-50%);text-align:center;font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:var(--text-dim);text-transform:none;letter-spacing:0.02em;pointer-events:none;">
@@ -2457,6 +2521,23 @@ setInterval(() => {
 }, 1500);
 
 // chart mode removed — memory spores replaced it
+
+// Palette picker — persists in localStorage, applies via body data-palette.
+const PALETTE_KEY = 'thought-visualizer:palette';
+function applyPalette(name) {
+  if (name) document.body.dataset.palette = name;
+  else document.body.removeAttribute('data-palette');
+  document.querySelectorAll('.palette-picker__dot').forEach(d => {
+    d.classList.toggle('is-active', (d.dataset.palette || '') === (name || ''));
+  });
+  localStorage.setItem(PALETTE_KEY, name || '');
+  // Live-render metro if visible so hue variables recompute in SVG
+  if (currentMode === 'metro') renderMetroSVG();
+}
+document.querySelectorAll('.palette-picker__dot').forEach(dot => {
+  dot.addEventListener('click', () => applyPalette(dot.dataset.palette || ''));
+});
+applyPalette(localStorage.getItem(PALETTE_KEY) || '');
 
 // autoboot: connect the auto-observer + do an immediate purge to catch
 // anything the session already ingested before the sanitize wiring landed.
