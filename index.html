@@ -6,7 +6,7 @@
 <title>Claude — Thought Visualizer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@300;400;500&family=Manrope:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg-0: #07040f;
@@ -1926,10 +1926,20 @@ function buildMemoryPayload() {
 }
 
 async function generatePoster() {
+  // Nominal layout in 2400×3000, but the actual canvas is scaled up by
+  // POSTER_SCALE for high-density output.  All draw calls keep working in
+  // logical coordinates thanks to g.scale().  PNG is lossless — no
+  // quality param involved — so the only knob for "not compressed" is
+  // source resolution.
   const PW = 2400, PH = 3000;
+  const POSTER_SCALE = 2;
   const c = document.createElement('canvas');
-  c.width = PW; c.height = PH;
+  c.width = PW * POSTER_SCALE; c.height = PH * POSTER_SCALE;
   const g = c.getContext('2d');
+  g.scale(POSTER_SCALE, POSTER_SCALE);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.textRendering = 'geometricPrecision';
 
   // background
   const bg = g.createRadialGradient(PW / 2, PH * 0.32, 300, PW / 2, PH * 0.4, PW * 1.1);
@@ -2277,11 +2287,11 @@ function renderMetroSVG() {
   svg.setAttribute('viewBox', `${-metroPan.x} ${-metroPan.y} ${W / metroZoom} ${H / metroZoom}`);
 
   const parts = [`<defs><style>
-    .lbl { font-family: 'Manrope', 'Inter', sans-serif; font-size: 12px; font-weight: 500; fill: #e9e2ff; }
-    .lnm { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; }
-    .weight { font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.15em; fill: #6b5b8a; }
+    .lbl { font-family: 'Manrope', 'Inter', sans-serif; font-size: 13px; font-weight: 500; fill: #e9e2ff; }
+    .lnm { font-family: 'Bricolage Grotesque', 'Manrope', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+    .weight { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.15em; fill: #6b5b8a; }
     .foot { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.15em; fill: #9a8fbe; }
-    .empty { font-family: 'Fraunces', serif; font-style: italic; font-size: 20px; fill: #6b5b8a; }
+    .empty { font-family: 'Instrument Serif', 'Fraunces', serif; font-style: italic; font-size: 22px; fill: #6b5b8a; }
     .layer-band { fill: rgba(123,77,255,0.02); }
     .layer-band-alt { fill: rgba(123,77,255,0.04); }
   </style></defs>`];
