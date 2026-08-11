@@ -444,19 +444,16 @@ function randomOnHypersphere(r) {
 function addThought(text, opts) {
   if (!text) return;
   const force = opts && opts.force;
+  const hueOverride = opts && typeof opts.hue === 'number' ? opts.hue : null;
   totalTokens += text.split(/\s+/).length;
   const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter(Boolean);
-  // For manual input (`force`), keep every word — otherwise strip stop words.
   const meaningful = force ? words : words.filter(w => w.length > 2 && !STOP.has(w));
-  // If nothing meaningful survived, keep at least the first non-empty token
-  // so a single-word prompt always becomes something visible.
   if (meaningful.length === 0 && words.length) meaningful.push(words[0]);
 
   const nodesThisThought = [];
   for (const w of meaningful) {
     let idx = concepts.get(w);
     if (idx === undefined) {
-      // birth a new neuron on the surface of a 4-sphere of random radius
       const rad = 90 + Math.random() * 220;
       const p4 = randomOnHypersphere(rad);
       const n = {
@@ -466,7 +463,7 @@ function addThought(text, opts) {
         r: 3 + Math.random() * 2,
         energy: 1.0,
         born: performance.now(),
-        hue: hueForConcept(w),
+        hue: hueOverride != null ? hueOverride + (Math.random() * 20 - 10) : hueForConcept(w),
       };
       neurons.push(n);
       idx = neurons.length - 1;
@@ -959,6 +956,20 @@ function startObserver() {
     listen('assistant_message', obs => {
       const t = obs.text || obs.payload?.text || '';
       if (t) { showCaption('… ' + t.slice(0, 200)); addThought(t); }
+    });
+    // Stream of consciousness: my actual `thinking` blocks streamed from
+    // the running transcript. Mint hue distinguishes them from concepts.
+    listen('assistant_thinking', obs => {
+      const t = obs.text || '';
+      if (!t) return;
+      showCaption('◐ ' + t.slice(0, 240).replace(/\s+/g, ' '));
+      addThought(t.slice(0, 2000), { hue: 150 });
+    });
+    listen('assistant_text', obs => {
+      const t = obs.text || '';
+      if (!t) return;
+      showCaption('◈ ' + t.slice(0, 240).replace(/\s+/g, ' '));
+      addThought(t.slice(0, 2000), { hue: 40 });
     });
     listen('stop', () => {
       showCaption('◇ turn ended');

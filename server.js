@@ -81,10 +81,69 @@ function handleObserve(req, res) {
     catch { res.writeHead(400); res.end('bad json'); return; }
     if (!obs.type) obs.type = 'observation';
     obs.ts = Date.now();
+    // Every Claude Code hook payload carries transcript_path.  Whenever a
+    // new one shows up, start tailing it so we can stream the assistant's
+    // thinking + text blocks — the actual stream-of-consciousness.
+    const tp = obs.payload?.transcript_path;
+    if (tp && typeof tp === 'string') ensureTailing(tp);
     broadcast(obs);
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end('{"ok":true}');
   });
+}
+
+// --- Transcript tailer ---------------------------------------------------
+// Claude Code appends the running conversation to a JSONL file per session.
+// Each assistant turn contains content blocks — `thinking` (my internal
+// monologue) and `text` (what the user sees).  Both flow into the mandala.
+const activeTails = new Map(); // path → { watcher, offset }
+function ensureTailing(pathStr) {
+  if (activeTails.has(pathStr)) return;
+  fs.stat(pathStr, (err, st) => {
+    if (err) return; // file not (yet) present
+    // Start at the current end — replay is handled by /stream history.
+    const state = { watcher: null, offset: st.size, busy: false };
+    const pump = () => {
+      if (state.busy) return;
+      state.busy = true;
+      fs.stat(pathStr, (err2, st2) => {
+        if (err2 || st2.size <= state.offset) { state.busy = false; return; }
+        const start = state.offset, end = st2.size;
+        state.offset = end;
+        const stream = fs.createReadStream(pathStr, { start, end });
+        let buf = '';
+        stream.on('data', c => { buf += c; });
+        stream.on('end', () => {
+          state.busy = false;
+          for (const line of buf.split('\n')) {
+            if (!line.trim()) continue;
+            try { processTranscriptEntry(JSON.parse(line)); } catch {}
+          }
+        });
+        stream.on('error', () => { state.busy = false; });
+      });
+    };
+    state.watcher = fs.watch(pathStr, { persistent: false }, () => pump());
+    activeTails.set(pathStr, state);
+    console.log(`  tailing transcript: ${pathStr}`);
+    pump();
+  });
+}
+
+function processTranscriptEntry(rec) {
+  // Assistant turns carry the blocks we care about.
+  if (rec?.type !== 'assistant') return;
+  const content = rec?.message?.content;
+  if (!Array.isArray(content)) return;
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue;
+    if (block.type === 'thinking' && block.thinking) {
+      // The actual internal monologue — stream of consciousness.
+      broadcast({ type: 'assistant_thinking', text: String(block.thinking), ts: Date.now() });
+    } else if (block.type === 'text' && block.text) {
+      broadcast({ type: 'assistant_text', text: String(block.text), ts: Date.now() });
+    }
+  }
 }
 
 // --- Optional live Anthropic API streaming -------------------------------
