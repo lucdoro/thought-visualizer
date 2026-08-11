@@ -384,7 +384,8 @@ canvas#stage {
   <div>drag · xy/yz plane</div>
   <div>⇧ drag · xw/yw</div>
   <div>⌥ drag · xz/zw</div>
-  <div>scroll · zoom</div>
+  <div>scroll · zoom (0.12–20×)</div>
+  <div>+/− · step · 0 reset</div>
   <div>space · pulse</div>
 </div>
 
@@ -494,8 +495,20 @@ window.addEventListener('mousemove', e => {
 });
 stage.addEventListener('wheel', e => {
   e.preventDefault();
-  cam4.zoom = Math.max(0.4, Math.min(3.0, cam4.zoom * (1 - e.deltaY * 0.001)));
+  // Trackpad pinch (ctrlKey) gets a stronger multiplier — feels natural.
+  const speed = e.ctrlKey ? 0.008 : 0.0025;
+  cam4.zoom = Math.max(0.12, Math.min(20, cam4.zoom * (1 - e.deltaY * speed)));
 }, { passive: false });
+// Keyboard zoom: +/- for coarse, [/] for fine, 0 to reset
+window.addEventListener('keydown', e => {
+  const t = document.activeElement?.tagName;
+  if (t === 'INPUT' || t === 'TEXTAREA') return;
+  if (e.key === '+' || e.key === '=') cam4.zoom = Math.min(20, cam4.zoom * 1.25);
+  else if (e.key === '-' || e.key === '_') cam4.zoom = Math.max(0.12, cam4.zoom / 1.25);
+  else if (e.key === ']') cam4.zoom = Math.min(20, cam4.zoom * 1.08);
+  else if (e.key === '[') cam4.zoom = Math.max(0.12, cam4.zoom / 1.08);
+  else if (e.key === '0') cam4.zoom = 1;
+});
 
 // Rotate a 4D point through all six planes.
 function rot4(p) {
