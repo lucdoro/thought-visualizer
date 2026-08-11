@@ -238,6 +238,135 @@ skips it.
 - Sidecar written to memory/ dir is loaded by memory bootstrap on next
   session start (integration test in a scratch project).
 
+## Extension — Metro Map paradigm (added 2026-08-11)
+
+An additional visual paradigm using the Tokyo/London subway map metaphor.
+Better than the mandala for **structural readability**: at one glance you
+see themes as lines, decisions as stations, and cross-cutting concerns as
+interchanges.
+
+### Mapping
+
+| Metro element | Session equivalent |
+|---|---|
+| Line (unique color) | Thematic cluster of co-occurring concepts |
+| Station | Concept or decision node |
+| Interchange | Concept appearing on 2+ lines (bridges themes) |
+| Line direction | Chronological order (first→last mention) |
+| Terminus | Open loop / unresolved thread |
+| Legend | Line name + 1-sentence narrative summary |
+
+### Rendering
+
+- Orthogonal Beck-style layout (lines run horizontal/vertical with 45°
+  turns), background dark, lines in high-saturation hues
+- Station markers: filled circles (~8px); interchanges are doubled outer
+  ring (~14px) in white
+- Labels in a clean sans (Manrope / Inter), 11px, slight rotation on
+  vertical lines
+- Legend bottom-strip: `━━ line-name · X stations · "1-sentence"`
+
+### Where it fits in the app
+
+**Poster format** (primary use, recommended): user chooses between
+"narrative poster" (2-col Fraunces + destylat) and "metro poster" (full
+map + legend footer) at export time. Both carry the same tEXt chunk and
+memory_md, differ only in visible presentation.
+
+**Optional third mode** (secondary): `[ graph ] [ narrative ] [ metro ]`
+top-level toggle for in-app exploration. Metro mode shows the layout
+live, updating as new stations/lines emerge from clustering.
+
+### Layout challenge
+
+Metro-map layout is NP-hard in the general case. Pragmatic prototype
+approach:
+1. Cluster concepts into lines via synapse-strength community detection
+   (or AI clustering if API key available — one Sonnet call per session)
+2. Each line: sort stations by first-mention time
+3. Assign lines to horizontal tracks (top-to-bottom by size)
+4. Detect interchanges → introduce 45° bends to make them coincide
+5. Heuristic-only, no guarantee of aesthetic optimum, but recognizable
+
+### Effort estimate (metro addition)
+
+- Concept clustering (co-occurrence or Sonnet cluster call): 2h
+- Layout algorithm (heuristic orthogonal): 4h
+- Render (canvas or SVG): 2h
+- Poster variant integration: 2h
+- **Total: ~10h on top of narrative implementation**
+
+### Priority
+
+Ship narrative mode first (as spec'd above). Metro paradigm is deferred
+until narrative is validated. When implementing, add as a poster format
+option first (higher value per hour), then optionally as third mode.
+
+## Extension — Circuit Flow paradigm (added 2026-08-11)
+
+An additional visual paradigm inspired by cyberpunk/matrix "circuit board
+with flowing code" imagery. Where metro-map is a static schematic and
+mandala is organic swirl, circuit-flow is **orthogonal grid with moving
+light packets and inline code fragments streaming along traces**.
+
+### Mapping
+
+| Circuit element | Session equivalent |
+|---|---|
+| Neon trace | Information flow path: user prompt → thinking → tool → response |
+| Junction (glowing) | Tool call or decision point |
+| Data packet (impulse along trace) | Token or concept in motion |
+| Code text along trace | Actual content (thinking snippet, tool input, response fragment) |
+| Isometric grid | Time axis × concept axis, depth = perspective into past |
+| Reflection below | Optional "sanitized shadow" — hint of what was redacted, without content |
+
+### Rendering
+
+- Black background, high-saturation neon palette (green primary as
+  reference, or per-user hue theme)
+- Isometric 30° perspective grid, orthogonal traces at 90° / 45° angles
+- Junctions as small bright squares (~6px filled with 12px halo)
+- Data packets as short bright segments traveling along traces at
+  ~120px/sec, tail fade
+- Code fragments (2-5 words) render inline along the trace, oriented
+  with the trace direction (rotated text)
+- Depth fog: farther-back traces dim exponentially, giving infinite-grid
+  feel
+- Optional bottom reflection layer at ~15% opacity, offset+skewed
+
+### Where it fits
+
+Same options as metro map:
+- Poster format #3 (alongside narrative + metro)
+- Fourth top-level mode `[ graph ] [ narrative ] [ metro ] [ circuit ]`
+
+### Layout algorithm
+
+Simpler than metro (no NP-hard requirement — traces can freely cross):
+1. Assign each turn to a horizontal band on the isometric plane
+2. Each event within a turn extends the trace toward the next event
+3. Tool calls branch off the main trace as short spurs to a junction
+4. Concepts appear as labels floating above their moment of introduction
+5. Data packets spawn per new event, travel toward the next junction
+
+Recognizable within 2-3h of layout + render work.
+
+### Effort estimate (circuit addition)
+
+- Isometric projection helpers + grid render: 2h
+- Trace generation from event stream: 2h
+- Data packet animation: 1h
+- Text-along-trace with rotation: 2h
+- Poster variant: 2h
+- **Total: ~9h**
+
+### Priority
+
+Same as metro: ship narrative first, then metro poster, then circuit as
+third option. Circuit is the most aesthetically striking and works best
+as a **screensaver / ambient display** — a good candidate for the
+lucdoro.design background layer (which is a separate open loop).
+
 ## Rollout
 
 Ship behind a query flag first: `?mode=narrative` or a hidden toggle
