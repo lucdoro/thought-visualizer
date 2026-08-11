@@ -390,8 +390,7 @@ canvas#stage {
 
 <div class="mode-pill">
   <button class="btn is-active" data-mode="observe">auto-observe</button>
-  <button class="btn" data-mode="sim">simulate</button>
-  <button class="btn" data-mode="live">live api</button>
+  <button class="btn" data-mode="sim">demo</button>
 </div>
 
 <div class="hud" style="top:70px;left:50%;transform:translateX(-50%);text-align:center;font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:var(--text-dim);text-transform:none;letter-spacing:0.02em;pointer-events:none;">
@@ -424,6 +423,7 @@ canvas#stage {
   <input id="prompt" placeholder="daj mi problem do przemyślenia..." />
   <button class="btn" id="think">think</button>
   <button class="btn" id="poster">→ plakat</button>
+  <button class="btn btn--ghost" id="purge" title="usuń hasła/tokeny z widoku">purge</button>
   <button class="btn btn--ghost" id="clear">clear</button>
 </div>
 
@@ -559,11 +559,13 @@ function randomOnHypersphere(r) {
 
 function addThought(text, opts) {
   if (!text) return;
+  text = sanitize(text, true);
   const force = opts && opts.force;
   const hueOverride = opts && typeof opts.hue === 'number' ? opts.hue : null;
   totalTokens += text.split(/\s+/).length;
   const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/).filter(Boolean);
-  const meaningful = force ? words : words.filter(w => w.length > 2 && !STOP.has(w));
+  let meaningful = force ? words : words.filter(w => w.length > 2 && !STOP.has(w));
+  meaningful = meaningful.filter(w => !looksSecret(w) && w !== 'redacted' && w !== 'password' && !w.startsWith('anthropic_') && !w.startsWith('openai_'));
   if (meaningful.length === 0 && words.length) meaningful.push(words[0]);
 
   const nodesThisThought = [];
@@ -960,6 +962,76 @@ function stopLive() { if (liveES) { liveES.close(); liveES = null; } }
 
 const OBS_SERVER = 'http://localhost:4173';
 
+// =========================================================================
+//   SANITIZE
+//   Everything that flows into the mandala, log, or poster metadata gets
+//   scrubbed of secrets first.  Better to lose a keyword than to publish
+//   an API key or a password on a printable poster.
+// =========================================================================
+const SECRET_PATTERNS = [
+  { re: /sk-ant-[a-zA-Z0-9_-]{20,}/g,             tag: '[ANTHROPIC_KEY]' },
+  { re: /sk-[A-Za-z0-9]{40,}/g,                    tag: '[OPENAI_KEY]' },
+  { re: /gh[opsur]_[A-Za-z0-9]{20,}/g,             tag: '[GITHUB_TOKEN]' },
+  { re: /AKIA[A-Z0-9]{16}/g,                        tag: '[AWS_KEY]' },
+  { re: /AIza[0-9A-Za-z_-]{35}/g,                   tag: '[GOOGLE_KEY]' },
+  { re: /ya29\.[0-9A-Za-z_-]{20,}/g,                tag: '[GOOGLE_OAUTH]' },
+  { re: /xox[abpors]-[A-Za-z0-9-]{20,}/g,           tag: '[SLACK_TOKEN]' },
+  { re: /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g, tag: '[PRIVATE_KEY]' },
+  { re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, tag: '[EMAIL]' },
+  // passwords in cli / config style: -p 'xxx', --password=xxx, password: xxx
+  { re: /(--?p(?:ass(?:word)?)?[= ]|password[=:]\s*|passwd[=:]\s*)['"]?[^\s'"]+['"]?/gi, tag: '$1[PASSWORD]' },
+  { re: /(api[_-]?key|token|secret)['"]?\s*[:=]\s*['"]?[^\s'"]+/gi, tag: '$1=[REDACTED]' },
+  // sshpass -p 'xxx'
+  { re: /sshpass\s+-p\s+['"]?[^\s'"]+['"]?/g,       tag: 'sshpass -p [PASSWORD]' },
+];
+const IDENTITY_PATTERNS = [
+  { re: /\/Users\/[a-zA-Z0-9._-]+/g, tag: '~' },   // strip username from paths
+  { re: /\/home\/[a-zA-Z0-9._-]+/g,  tag: '~' },
+];
+function sanitize(text, strict = false) {
+  if (text == null) return text;
+  let out = String(text);
+  for (const { re, tag } of SECRET_PATTERNS) out = out.replace(re, tag);
+  if (strict) for (const { re, tag } of IDENTITY_PATTERNS) out = out.replace(re, tag);
+  return out;
+}
+// Also test a bare token/word: if it *matches* a secret pattern in isolation,
+// return true so it can be dropped from neuron creation entirely.
+function looksSecret(word) {
+  if (!word) return false;
+  return SECRET_PATTERNS.some(({ re }) => { re.lastIndex = 0; return re.test(word); });
+}
+// Retroactive purge of already-created neurons/synapses/log entries.
+function purgeSecrets() {
+  // scrub log DOM
+  const entries = document.querySelectorAll('.stream-log__entry');
+  let scrubbed = 0;
+  for (const e of entries) {
+    const before = e.textContent;
+    const after = sanitize(before, true);
+    if (after !== before) {
+      const time = e.querySelector('.stream-log__meta')?.outerHTML || '';
+      const tag  = e.querySelector('.stream-log__tag')?.outerHTML || '';
+      e.innerHTML = time + tag + escapeHtml(after.replace(e.querySelector('.stream-log__meta')?.textContent || '', '').replace(e.querySelector('.stream-log__tag')?.textContent || '', '').trim());
+      scrubbed++;
+    }
+  }
+  // drop neurons whose word looks secret
+  for (let i = neurons.length - 1; i >= 0; i--) {
+    if (looksSecret(neurons[i].word)) {
+      neurons.splice(i, 1);
+      for (let j = synapses.length - 1; j >= 0; j--) {
+        const s = synapses[j];
+        if (s.a === i || s.b === i) synapses.splice(j, 1);
+        else { if (s.a > i) s.a--; if (s.b > i) s.b--; }
+      }
+    }
+  }
+  concepts.clear();
+  for (let i = 0; i < neurons.length; i++) if (neurons[i].word) concepts.set(neurons[i].word, i);
+  return { logEntries: scrubbed, neurons: neurons.length };
+}
+
 // --- Stream log (left column) --------------------------------------------
 // Append a terminal-style line for every observation, one under the other.
 // Kept lightweight: caps at 250 entries, auto-scrolls to bottom.
@@ -971,6 +1043,7 @@ function timeTag() {
 }
 function pushLog(kind, tag, text) {
   if (!text) return;
+  text = sanitize(text, true);
   const div = document.createElement('div');
   div.className = 'stream-log__entry stream-log__entry--' + kind;
   const meta = document.createElement('span');
@@ -1205,17 +1278,15 @@ document.querySelectorAll('[data-mode]').forEach(b => {
     document.querySelectorAll('[data-mode]').forEach(x => x.classList.remove('is-active'));
     b.classList.add('is-active');
     currentMode = b.dataset.mode;
-    stopSim(); stopLive(); stopObserver();
+    stopSim(); stopObserver();
     if (currentMode === 'observe') startObserver();
-    else document.getElementById('statMode').textContent = 'idle';
+    else document.getElementById('statMode').textContent = 'demo';
   });
 });
 document.getElementById('think').addEventListener('click', () => {
   const p = document.getElementById('prompt').value.trim();
   if (currentMode === 'sim') startSim(p);
-  else if (currentMode === 'live') startLive(p);
   else {
-    // In observe mode, "think" injects a manual thought locally.
     if (p) { addThought(p, { force: true }); document.getElementById('prompt').value = ''; }
   }
 });
@@ -1551,12 +1622,12 @@ setInterval(() => {
 function buildMemoryPayload() {
   const streamEntries = Array.from(document.querySelectorAll('.stream-log__entry')).slice(-120).map(e => {
     const kind = [...e.classList].find(c => c.startsWith('stream-log__entry--'))?.replace('stream-log__entry--', '') || 'x';
-    return { k: kind, t: e.textContent.slice(0, 500) };
+    return { k: kind, t: sanitize(e.textContent.slice(0, 500), true) };
   });
-  const concepts = neurons.filter(n => n.word && !n.tool && n.word !== 'user')
-    .map(n => ({ w: n.word, e: +n.energy.toFixed(2), h: n.hue | 0 }))
+  const concepts = neurons.filter(n => n.word && !n.tool && n.word !== 'user' && !looksSecret(n.word))
+    .map(n => ({ w: sanitize(n.word, true), e: +n.energy.toFixed(2), h: n.hue | 0 }))
     .sort((a, b) => b.e - a.e).slice(0, 200);
-  const tools = neurons.filter(n => n.tool).map(n => n.word).slice(-100);
+  const tools = neurons.filter(n => n.tool).map(n => sanitize(n.word, true)).slice(-100);
   return {
     v: 1,
     kind: 'thought-visualizer.memory-poster',
@@ -1564,6 +1635,7 @@ function buildMemoryPayload() {
     iso: new Date().toISOString(),
     session: { neurons: neurons.length, synapses: synapses.length, glyphs: glyphs.length, tokens: totalTokens },
     concepts, tools, stream: streamEntries,
+    sanitized: true,
   };
 }
 
@@ -1831,9 +1903,14 @@ function blobToBase64(blob) {
   });
 }
 document.getElementById('poster').addEventListener('click', savePoster);
+document.getElementById('purge').addEventListener('click', () => {
+  const r = purgeSecrets();
+  showCaption(`◈ wyczyszczono ${r.logEntries} wpisów logu, zostało ${r.neurons} neuronów`);
+});
 
-// autoboot: connect the auto-observer immediately.
-setTimeout(() => startObserver(), 300);
+// autoboot: connect the auto-observer + do an immediate purge to catch
+// anything the session already ingested before the sanitize wiring landed.
+setTimeout(() => { startObserver(); purgeSecrets(); }, 300);
 </script>
 </body>
 </html>
