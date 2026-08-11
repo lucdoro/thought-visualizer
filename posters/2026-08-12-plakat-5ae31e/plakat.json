@@ -1,0 +1,36 @@
+{
+  "ts": 1786500000000,
+  "iso": "2026-08-11T22:00:00.000Z",
+  "session": {
+    "neurons": 10,
+    "synapses": 5,
+    "glyphs": 3,
+    "tokens": 100
+  },
+  "concepts": [
+    {
+      "w": "plakat",
+      "e": 2.1,
+      "h": 280
+    },
+    {
+      "w": "sanitize",
+      "e": 1.8,
+      "h": 150
+    }
+  ],
+  "tools": [
+    "Bash",
+    "Read"
+  ],
+  "stream": [
+    {
+      "k": "user",
+      "t": "test prompt"
+    },
+    {
+      "k": "text",
+      "t": "o plakat i sanitize"
+    }
+  ]
+}

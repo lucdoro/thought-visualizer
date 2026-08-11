@@ -11,6 +11,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -290,9 +291,15 @@ function readBody(req, maxBytes) {
   });
 }
 
-// --- Poster archive ------------------------------------------------------
-// Accepts { name, png (base64), meta } and drops the PNG + a .json sidecar
-// into ./posters/.  Also (re)generates ./posters/index.html gallery page.
+// --- Poster archive (distributed) ---------------------------------------
+// Every poster save writes a *tree* under ./posters/<session-id>/ :
+//   plakat.png            (2× scaled lossless PNG with tEXt memory chunk)
+//   plakat.json           (full memory JSON — same content as the chunk)
+//   index.json            (session meta + concept-list pointer)
+//   concepts/<slug>.json  (mini-context per top concept, up to 40)
+// The visible poster prints the session URL prominently.  A future Claude
+// can Read the screenshot, extract 30-40 concept words, and WebFetch each
+// concept's JSON to reconstruct memory even when the tEXt chunk is gone.
 function handlePublish(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
@@ -302,30 +309,121 @@ function handlePublish(req, res) {
     try {
       const { name, png, meta } = JSON.parse(body);
       if (!name || !png) throw new Error('missing name/png');
-      const dir = path.join(__dirname, 'posters');
-      fs.mkdirSync(dir, { recursive: true });
-      const safeName = name.replace(/[^a-z0-9._-]/gi, '_');
-      const filePath = path.join(dir, safeName);
-      fs.writeFileSync(filePath, Buffer.from(png, 'base64'));
-      if (meta) fs.writeFileSync(filePath.replace(/\.png$/, '.json'), JSON.stringify(meta, null, 2));
-      writeGalleryIndex(dir);
-      console.log(`  poster saved: ${filePath}`);
+
+      const sessionId = generateSessionId(meta);
+      const sessionDir = path.join(__dirname, 'posters', sessionId);
+      const conceptsDir = path.join(sessionDir, 'concepts');
+      fs.mkdirSync(conceptsDir, { recursive: true });
+
+      // Poster + full memory
+      fs.writeFileSync(path.join(sessionDir, 'plakat.png'), Buffer.from(png, 'base64'));
+      if (meta) fs.writeFileSync(path.join(sessionDir, 'plakat.json'), JSON.stringify(meta, null, 2));
+
+      // Per-concept files — up to 40 top concepts
+      const conceptList = [];
+      for (const c of (meta?.concepts || []).slice(0, 40)) {
+        const slug = slugify(c.w);
+        if (!slug) continue;
+        conceptList.push({ word: c.w, slug, hue: c.h, energy: c.e });
+        const ctx = buildConceptContext(c.w, meta);
+        fs.writeFileSync(path.join(conceptsDir, `${slug}.json`), JSON.stringify(ctx, null, 2));
+      }
+
+      // Session index — canonical entry point for the reconstructor
+      const index = {
+        v: 1,
+        kind: 'thought-visualizer.session-index',
+        session: sessionId,
+        date: meta?.iso || new Date().toISOString(),
+        stats: meta?.session || {},
+        top_concepts: conceptList,
+        tools: meta?.tools || [],
+        poster: 'plakat.png',
+        full: 'plakat.json',
+        concepts_dir: 'concepts/',
+        url: `https://lucdoro.design/thoughts/${sessionId}/`,
+      };
+      fs.writeFileSync(path.join(sessionDir, 'index.json'), JSON.stringify(index, null, 2));
+
+      writeGalleryIndex(path.join(__dirname, 'posters'));
+      console.log(`  session saved: ${sessionDir} (${conceptList.length} concepts)`);
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, path: filePath, url: `/posters/${safeName}` }));
+      res.end(JSON.stringify({
+        ok: true,
+        session: sessionId,
+        path: sessionDir,
+        url: `https://lucdoro.design/thoughts/${sessionId}/`,
+        concepts: conceptList.length,
+      }));
     } catch (e) {
       res.writeHead(400); res.end(JSON.stringify({ error: String(e.message || e) }));
     }
   });
 }
 
+function slugify(s) {
+  return String(s).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+}
+function generateSessionId(meta) {
+  const date = new Date(meta?.ts || Date.now()).toISOString().slice(0, 10);
+  const top = slugify(meta?.concepts?.[0]?.w || 'sesja') || 'sesja';
+  const h = crypto.createHash('sha256')
+    .update(JSON.stringify(meta?.concepts?.slice(0, 3) || []) + date)
+    .digest('hex').slice(0, 6);
+  return `${date}-${top}-${h}`;
+}
+function buildConceptContext(word, meta) {
+  const re = new RegExp('\\b' + String(word).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+  const mentions = (meta?.stream || []).filter(e => re.test(e.t || ''));
+  const self = (meta?.concepts || []).find(c => c.w === word) || {};
+  const others = (meta?.concepts || []).filter(c => c.w !== word).slice(0, 24).map(c => c.w);
+  return {
+    v: 1,
+    word,
+    session: meta?.iso || new Date().toISOString(),
+    energy: self.e || 0,
+    hue: self.h || 280,
+    mentions_count: mentions.length,
+    first_mention: mentions[0]?.t?.slice(0, 200) || '',
+    last_mention: mentions[mentions.length - 1]?.t?.slice(0, 200) || '',
+    excerpts: mentions.slice(-6).map(m => ({ kind: m.k, text: (m.t || '').slice(0, 400) })),
+    tools_seen: (meta?.tools || []).slice(0, 24),
+    related_concepts: others,
+  };
+}
+
 function writeGalleryIndex(dir) {
-  const files = fs.readdirSync(dir).filter(f => f.endsWith('.png')).sort().reverse();
-  const rows = files.map(f => {
-    const meta = tryReadJson(path.join(dir, f.replace(/\.png$/, '.json')));
-    const iso = meta?.iso || '';
-    const summary = meta?.concepts?.slice(0, 6).map(c => c.w).join(' · ') || '';
-    return `<li><a href="${f}"><img src="${f}" loading="lazy"/><div><strong>${iso}</strong><span>${summary}</span></div></a></li>`;
-  }).join('\n');
+  // Walk one level of session directories, plus legacy flat PNGs.
+  const entries = [];
+  for (const f of fs.readdirSync(dir)) {
+    const full = path.join(dir, f);
+    if (fs.statSync(full).isDirectory()) {
+      const idx = tryReadJson(path.join(full, 'index.json'));
+      if (!idx) continue;
+      entries.push({
+        href: `${f}/plakat.png`,
+        session: idx.session,
+        date: idx.date,
+        concepts: idx.top_concepts?.slice(0, 6).map(c => c.word).join(' · ') || '',
+        count: idx.top_concepts?.length || 0,
+      });
+    } else if (f.endsWith('.png')) {
+      const meta = tryReadJson(path.join(dir, f.replace(/\.png$/, '.json')));
+      entries.push({
+        href: f,
+        session: f,
+        date: meta?.iso || '',
+        concepts: meta?.concepts?.slice(0, 6).map(c => c.w).join(' · ') || '',
+        count: meta?.concepts?.length || 0,
+      });
+    }
+  }
+  entries.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const rows = entries.map(e =>
+    `<li><a href="${e.href}"><img src="${e.href}" loading="lazy"/><div><strong>${e.date}</strong><span>${e.concepts}</span><small>${e.count} concepts · ${e.session}</small></div></a></li>`
+  ).join('\n');
   const html = `<!doctype html><html lang="pl"><head><meta charset="utf-8">
 <title>thought · memory-posters</title>
 <style>
@@ -344,10 +442,11 @@ li a:hover { transform: translateY(-3px); border-color: #b58cff; }
 img { width:100%; height:auto; display:block; }
 li div { padding: 12px 16px 16px; font-size: 11px; }
 li strong { display:block; font-weight:500; color:#e9e2ff; margin-bottom:4px; }
-li span { color:#9a8fbe; }
+li span { color:#9a8fbe; display:block; }
+li small { display:block; margin-top:6px; color:#6b5b8a; font-family:monospace; font-size:9px; letter-spacing:0.1em; }
 </style></head><body>
 <h1>thought · memory-posters</h1>
-<p class="sub">${files.length} archiwów. Każdy PNG zawiera ukryty JSON w chunku tEXt "thought-visualizer".</p>
+<p class="sub">${entries.length} archiwów · <a href="https://github.com/lucdoro/thought-visualizer" style="color:#b58cff">github.com/lucdoro/thought-visualizer</a></p>
 <ul>${rows}</ul>
 </body></html>`;
   fs.writeFileSync(path.join(dir, 'index.html'), html);

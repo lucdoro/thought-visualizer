@@ -1,0 +1,33 @@
+{
+  "v": 1,
+  "word": "plakat",
+  "session": "2026-08-11T22:00:00.000Z",
+  "energy": 2.1,
+  "hue": 280,
+  "mentions_count": 3,
+  "first_mention": "jak plakat i sanitize działa razem",
+  "last_mention": "myślę o metro layout dla plakat",
+  "excerpts": [
+    {
+      "kind": "user",
+      "text": "jak plakat i sanitize działa razem"
+    },
+    {
+      "kind": "text",
+      "text": "plakat generuje snapshot sanitize filtruje sekrety"
+    },
+    {
+      "kind": "thinking",
+      "text": "myślę o metro layout dla plakat"
+    }
+  ],
+  "tools_seen": [
+    "Bash",
+    "Read",
+    "Edit"
+  ],
+  "related_concepts": [
+    "sanitize",
+    "metro"
+  ]
+}

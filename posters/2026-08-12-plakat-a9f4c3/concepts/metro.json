@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "word": "metro",
+  "session": "2026-08-11T22:00:00.000Z",
+  "energy": 1.5,
+  "hue": 40,
+  "mentions_count": 1,
+  "first_mention": "myślę o metro layout dla plakat",
+  "last_mention": "myślę o metro layout dla plakat",
+  "excerpts": [
+    {
+      "kind": "thinking",
+      "text": "myślę o metro layout dla plakat"
+    }
+  ],
+  "tools_seen": [
+    "Bash",
+    "Read",
+    "Edit"
+  ],
+  "related_concepts": [
+    "plakat",
+    "sanitize"
+  ]
+}

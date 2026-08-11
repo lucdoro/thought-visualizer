@@ -1926,6 +1926,20 @@ setInterval(() => {
 //  from the PNG and reconstruct what this session was about.
 // ==========================================================================
 
+// Deterministic session id: date + slug of top concept + short hash.
+// Frontend and backend compute the SAME id from the same meta.
+function computeSessionId(meta) {
+  const date = new Date(meta.ts).toISOString().slice(0, 10);
+  const top = String(meta.concepts?.[0]?.w || 'sesja')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'sesja';
+  const s = JSON.stringify((meta.concepts || []).slice(0, 3)) + date;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
+  return `${date}-${top}-${h.toString(16).slice(0, 6)}`;
+}
+
 function buildMemoryPayload() {
   const streamEntries = Array.from(document.querySelectorAll('.stream-log__entry')).slice(-120).map(e => {
     const kind = [...e.classList].find(c => c.startsWith('stream-log__entry--'))?.replace('stream-log__entry--', '') || 'x';
@@ -2089,15 +2103,30 @@ async function generatePoster() {
     if (sy > PH - 340) break;
   }
 
-  // footer — honest about where the machine-readable memory lives
-  g.textAlign = 'left';
-  g.fillStyle = '#9a8fbe';
-  g.font = '400 16px "JetBrains Mono", monospace';
-  g.fillText('memory-poster · v1', 200, PH - 90);
-  g.fillText('decode: node ~/thought-visualizer/decode.mjs poster.png', 200, PH - 60);
-  g.fillText('archive: lucdoro.design/thoughts/', 200, PH - 30);
+  // Session URL — the primary memory anchor.  Rendered large so it
+  // survives screenshots and can be transcribed visually.  Each top-40
+  // concept is fetchable at ${URL}/concepts/<slug>.json — a future Claude
+  // can reconstruct memory from just this URL + the visible concept
+  // labels above.
+  const sessionId = computeSessionId(buildMemoryPayload());
+  const sessionUrl = `lucdoro.design/thoughts/${sessionId}/`;
 
-  // tiny memory-sigil at bottom-right — decorative, not a scannable code
+  g.textAlign = 'center';
+  g.fillStyle = '#b58cff';
+  g.font = 'bold 500 26px "JetBrains Mono", monospace';
+  g.fillText(sessionUrl, PW / 2, PH - 140);
+  g.font = '400 15px "JetBrains Mono", monospace';
+  g.fillStyle = '#9a8fbe';
+  g.fillText('scan visible concepts + fetch /concepts/<slug>.json each · or decode.mjs plakat.png', PW / 2, PH - 110);
+
+  // decoder + fallback hints
+  g.textAlign = 'left';
+  g.fillStyle = '#6b5b8a';
+  g.font = '400 14px "JetBrains Mono", monospace';
+  g.fillText('memory-poster · v2 · distributed', 200, PH - 60);
+  g.fillText('reconstruct: node reconstruct.mjs ' + sessionId, 200, PH - 30);
+
+  // tiny memory-sigil at bottom-right — decorative
   drawMemorySigil(g, PW - 240, PH - 240, 180);
 
   // export + inject metadata
@@ -2362,16 +2391,24 @@ function renderMetroSVG() {
     parts.push(`<text x="${marginL - 14}" y="${y - 2}" text-anchor="end" class="lnm" fill="${color}">${size} · ${escapeSvg(line[0].word)}</text>`);
     parts.push(`<text x="${marginL - 14}" y="${y + 14}" text-anchor="end" class="weight">weight ${weightPct}%</text>`);
 
-    // Stations.
+    // Stations.  Each concept gets a font chosen deterministically from
+    // its hue so the map has typographic variety without random flicker.
+    const FONT_POOL = [
+      { family: "'Manrope', sans-serif",                weight: 500, size: 13, italic: '' },
+      { family: "'Fraunces', 'Instrument Serif', serif", weight: 400, size: 14, italic: 'italic' },
+      { family: "'Bricolage Grotesque', sans-serif",    weight: 700, size: 13, italic: '' },
+      { family: "'JetBrains Mono', monospace",          weight: 400, size: 12, italic: '' },
+      { family: "'Instrument Serif', serif",            weight: 400, size: 15, italic: 'italic' },
+    ];
     line.forEach((s, i) => {
       const x = posX[i];
       const isTerminus = (i === 0 || i === line.length - 1);
       const r = isTerminus ? 8 : 6;
+      const font = FONT_POOL[Math.abs(hashWord(s.word)) % FONT_POOL.length];
       parts.push(`<g class="station"><circle cx="${x}" cy="${y}" r="${r}" fill="${color}" stroke="#07040f" stroke-width="2"/>`);
-      // Alternating label above/below so long lines don't overlap.
       const above = (i % 2 === 0);
       const ly = above ? y - 14 : y + 22;
-      parts.push(`<text x="${x}" y="${ly}" text-anchor="middle" class="lbl">${escapeSvg(s.word)}</text></g>`);
+      parts.push(`<text x="${x}" y="${ly}" text-anchor="middle" fill="#e9e2ff" font-family=${JSON.stringify(font.family)} font-size="${font.size}" font-weight="${font.weight}" font-style="${font.italic}">${escapeSvg(s.word)}</text></g>`);
     });
   });
 
@@ -2383,6 +2420,7 @@ function renderMetroSVG() {
 }
 
 function escapeSvg(s) { return String(s).replace(/[&<>"]/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m])); }
+function hashWord(s) { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0; return h; }
 
 // Zoom controls for the metro view.
 function metroFit() { metroZoom = 1; metroPan = { x: 0, y: 0 }; renderMetroSVG(); }

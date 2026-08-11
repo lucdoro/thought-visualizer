@@ -1,0 +1,41 @@
+{
+  "v": 1,
+  "kind": "thought-visualizer.session-index",
+  "session": "2026-08-12-plakat-a9f4c3",
+  "date": "2026-08-11T22:00:00.000Z",
+  "stats": {
+    "neurons": 10,
+    "synapses": 5,
+    "glyphs": 3,
+    "tokens": 100
+  },
+  "top_concepts": [
+    {
+      "word": "plakat",
+      "slug": "plakat",
+      "hue": 280,
+      "energy": 2.1
+    },
+    {
+      "word": "sanitize",
+      "slug": "sanitize",
+      "hue": 150,
+      "energy": 1.8
+    },
+    {
+      "word": "metro",
+      "slug": "metro",
+      "hue": 40,
+      "energy": 1.5
+    }
+  ],
+  "tools": [
+    "Bash",
+    "Read",
+    "Edit"
+  ],
+  "poster": "plakat.png",
+  "full": "plakat.json",
+  "concepts_dir": "concepts/",
+  "url": "https://lucdoro.design/thoughts/2026-08-12-plakat-a9f4c3/"
+}

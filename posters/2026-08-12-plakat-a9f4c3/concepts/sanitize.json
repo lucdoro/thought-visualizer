@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "word": "sanitize",
+  "session": "2026-08-11T22:00:00.000Z",
+  "energy": 1.8,
+  "hue": 150,
+  "mentions_count": 2,
+  "first_mention": "jak plakat i sanitize działa razem",
+  "last_mention": "plakat generuje snapshot sanitize filtruje sekrety",
+  "excerpts": [
+    {
+      "kind": "user",
+      "text": "jak plakat i sanitize działa razem"
+    },
+    {
+      "kind": "text",
+      "text": "plakat generuje snapshot sanitize filtruje sekrety"
+    }
+  ],
+  "tools_seen": [
+    "Bash",
+    "Read",
+    "Edit"
+  ],
+  "related_concepts": [
+    "plakat",
+    "metro"
+  ]
+}

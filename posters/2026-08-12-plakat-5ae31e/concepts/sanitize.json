@@ -1,0 +1,23 @@
+{
+  "v": 1,
+  "word": "sanitize",
+  "session": "2026-08-11T22:00:00.000Z",
+  "energy": 1.8,
+  "hue": 150,
+  "mentions_count": 1,
+  "first_mention": "o plakat i sanitize",
+  "last_mention": "o plakat i sanitize",
+  "excerpts": [
+    {
+      "kind": "text",
+      "text": "o plakat i sanitize"
+    }
+  ],
+  "tools_seen": [
+    "Bash",
+    "Read"
+  ],
+  "related_concepts": [
+    "plakat"
+  ]
+}
