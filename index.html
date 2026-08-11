@@ -2169,11 +2169,6 @@ function buildMemoryPayload() {
 }
 
 async function generatePoster() {
-  // Nominal layout in 2400×3000, but the actual canvas is scaled up by
-  // POSTER_SCALE for high-density output.  All draw calls keep working in
-  // logical coordinates thanks to g.scale().  PNG is lossless — no
-  // quality param involved — so the only knob for "not compressed" is
-  // source resolution.
   const PW = 2400, PH = 3000;
   const POSTER_SCALE = 2;
   const c = document.createElement('canvas');
@@ -2184,160 +2179,193 @@ async function generatePoster() {
   g.imageSmoothingQuality = 'high';
   g.textRendering = 'geometricPrecision';
 
-  // background
-  const bg = g.createRadialGradient(PW / 2, PH * 0.32, 300, PW / 2, PH * 0.4, PW * 1.1);
-  bg.addColorStop(0, '#181038'); bg.addColorStop(0.5, '#0d0820'); bg.addColorStop(1, '#000');
-  g.fillStyle = bg; g.fillRect(0, 0, PW, PH);
+  // === BACKGROUND — deep aurora ==========================================
+  // Layered radial gradients + subtle horizontal band for depth.
+  const bg1 = g.createLinearGradient(0, 0, 0, PH);
+  bg1.addColorStop(0, '#0a0616'); bg1.addColorStop(0.5, '#050310'); bg1.addColorStop(1, '#000');
+  g.fillStyle = bg1; g.fillRect(0, 0, PW, PH);
+  const bg2 = g.createRadialGradient(PW * 0.5, PH * 0.32, 200, PW * 0.5, PH * 0.35, PW * 0.9);
+  bg2.addColorStop(0, 'rgba(123,77,255,0.18)');
+  bg2.addColorStop(0.5, 'rgba(60,30,120,0.05)');
+  bg2.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = bg2; g.fillRect(0, 0, PW, PH);
+  // Fine noise dots for grain (very subtle)
+  g.globalAlpha = 0.06;
+  for (let i = 0; i < 900; i++) {
+    g.fillStyle = Math.random() > 0.5 ? '#b58cff' : '#7effc6';
+    g.fillRect(Math.random() * PW, Math.random() * PH, 1, 1);
+  }
+  g.globalAlpha = 1;
 
-  // Which concepts dominated this session?  Everything downstream is
-  // arranged so a glance at the poster tells you the *topic*.
+  // === CONCEPT DATA ======================================================
   const topConcepts = neurons
     .filter(n => n.word && !n.tool && n.word !== 'user' && n.word.length > 2)
     .sort((a, b) => b.energy - a.energy);
-  const topFive = topConcepts.slice(0, 5);
-  const topTitle = topFive.map(n => n.word).join(' · ') || 'sesja';
+  const heroWord = topConcepts[0]?.word || 'sesja';
+  const heroColor = topConcepts[0] ? `hsl(${topConcepts[0].h ?? topConcepts[0].hue}, ${Math.min(80, (topConcepts[0].s ?? 70) + 15)}%, ${Math.min(85, (topConcepts[0].l ?? 65) + 20)}%)` : '#e9e2ff';
+  const subConcepts = topConcepts.slice(1, 5);
 
-  // Header — the title itself is the topic, not a generic label.
+  // === EYEBROW ===========================================================
   g.textAlign = 'center';
-  g.fillStyle = '#e9e2ff';
-  g.font = 'italic 300 76px "Fraunces", Georgia, serif';
-  wrapText(g, topTitle, PW / 2, 130, PW - 300, 82);
-  g.fillStyle = '#b58cff';
-  g.font = '500 18px "JetBrains Mono", ui-monospace, monospace';
-  g.fillText('claude · opus 4.7 · ' + new Date().toLocaleString('pl-PL'), PW / 2, 220);
+  g.fillStyle = '#9a8fbe';
+  g.font = '500 15px "JetBrains Mono", monospace';
+  g.fillText('◈  MEMORY  POSTER  ◈  ' + new Date().toLocaleString('pl-PL'), PW / 2, 90);
+  g.font = '400 12px "JetBrains Mono", monospace';
+  g.fillStyle = '#6b5b8a';
+  g.fillText('claude · opus 4.7', PW / 2, 118);
 
-  // mandala snapshot
-  const snap = { x: 200, y: 280, w: PW - 400, h: 1420 };
+  // === HERO TITLE — top-1 concept, gigantic ==============================
+  g.textAlign = 'center';
+  g.fillStyle = heroColor;
+  g.font = `italic 300 220px "Fraunces", Georgia, serif`;
+  // Auto-fit — shrink if too wide
+  let heroSize = 220;
+  while (g.measureText(heroWord).width > PW - 300 && heroSize > 90) {
+    heroSize -= 10; g.font = `italic 300 ${heroSize}px "Fraunces", Georgia, serif`;
+  }
+  g.fillText(heroWord, PW / 2, 285);
+
+  // Subtitle — next 4 concepts in Bricolage
+  if (subConcepts.length) {
+    g.font = '400 26px "Bricolage Grotesque", "Manrope", sans-serif';
+    g.fillStyle = '#b58cff';
+    const sub = subConcepts.map(n => n.word).join('  ·  ');
+    g.fillText(sub, PW / 2, 345);
+  }
+
+  // Divider under hero
+  g.strokeStyle = 'rgba(181,140,255,0.2)'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(400, 380); g.lineTo(PW - 400, 380); g.stroke();
+
+  // === MANDALA — clean mesh, no inline labels ===========================
+  const snap = { x: 240, y: 420, w: PW - 480, h: 1100 };
+  // subtle frame
+  g.strokeStyle = 'rgba(181,140,255,0.15)'; g.lineWidth = 1;
+  g.strokeRect(snap.x, snap.y, snap.w, snap.h);
+  // dark inner fill
+  g.fillStyle = 'rgba(7,4,15,0.85)';
+  g.fillRect(snap.x, snap.y, snap.w, snap.h);
+  // clip + draw stage
   g.save();
   g.beginPath(); g.rect(snap.x, snap.y, snap.w, snap.h); g.clip();
-  g.fillStyle = '#07040f'; g.fillRect(snap.x, snap.y, snap.w, snap.h);
   g.drawImage(stage, snap.x, snap.y, snap.w, snap.h);
   g.restore();
-  g.strokeStyle = 'rgba(123,77,255,0.25)'; g.lineWidth = 1;
-  g.strokeRect(snap.x, snap.y, snap.w, snap.h);
 
-  // Overlay top-3 concepts as huge italic ghosts floating over the mandala.
-  // These make the topic recognizable at 3 metres from the printed page.
-  const bigPositions = [
-    { xf: 0.5,  yf: 0.5,  size: 240 },
-    { xf: 0.25, yf: 0.25, size: 150 },
-    { xf: 0.75, yf: 0.78, size: 130 },
-  ];
-  g.textAlign = 'center';
-  topFive.slice(0, 3).forEach((n, i) => {
-    const p = bigPositions[i];
-    g.font = `italic 300 ${p.size}px "Fraunces", Georgia, serif`;
-    g.fillStyle = `hsla(${n.hue}, 65%, 78%, 0.24)`;
-    g.fillText(n.word, snap.x + snap.w * p.xf, snap.y + snap.h * p.yf);
+  // Corner brackets — designer flourish
+  const bracketLen = 40, bracketOff = 12;
+  g.strokeStyle = heroColor; g.lineWidth = 2;
+  [[snap.x, snap.y, 1, 1], [snap.x + snap.w, snap.y, -1, 1],
+   [snap.x, snap.y + snap.h, 1, -1], [snap.x + snap.w, snap.y + snap.h, -1, -1]].forEach(([bx, by, dx, dy]) => {
+    g.beginPath();
+    g.moveTo(bx - dx * bracketOff, by + dy * bracketLen);
+    g.lineTo(bx - dx * bracketOff, by - dy * bracketOff);
+    g.lineTo(bx + dx * bracketLen, by - dy * bracketOff);
+    g.stroke();
   });
 
-  // Overlay labels for medium-energy neurons directly on the mandala at
-  // their live-screen positions (scaled).  This makes the mesh literally
-  // legible — you can *read* the concepts off the network, not just the
-  // description below.
-  if (lastFrameProjection && lastFrameProjection.length) {
-    const sx = snap.w / W, sy = snap.h / H;
-    const items = lastFrameProjection.slice().sort((a, b) => {
-      const na = neurons[a.idx], nb = neurons[b.idx];
-      return (nb?.energy || 0) - (na?.energy || 0);
-    }).slice(0, 60);
-    for (const it of items) {
-      const n = neurons[it.idx];
-      if (!n || !n.word) continue;
-      const px = snap.x + it.x * sx;
-      const py = snap.y + it.y * sy;
-      if (px < snap.x + 20 || px > snap.x + snap.w - 20) continue;
-      const size = Math.min(34, 14 + n.energy * 10);
-      g.font = `500 ${size}px "JetBrains Mono", ui-monospace, monospace`;
-      g.textAlign = 'left';
-      g.fillStyle = `hsla(${n.hue}, 65%, 82%, ${Math.min(0.95, 0.55 + n.energy * 0.25)})`;
-      g.fillText(n.word, px + 8, py + 4);
-    }
-  }
-
-  const rowY = snap.y + snap.h + 90;
-
-  // metrics column
+  // === KONCEPTY — big organic word cloud ===============================
+  const conceptsY = snap.y + snap.h + 110;
   g.textAlign = 'left';
   g.fillStyle = '#b58cff';
-  g.font = 'italic 300 44px "Fraunces", serif';
-  g.fillText('metryka', 200, rowY);
-  g.font = '400 22px "JetBrains Mono", monospace';
-  g.fillStyle = '#e9e2ff';
-  const stats = [
-    `neurons  ${String(neurons.length).padStart(4)}`,
-    `synapses ${String(synapses.length).padStart(4)}`,
-    `glyphs   ${String(glyphs.length).padStart(4)}`,
-    `tokens   ${String(totalTokens).padStart(4)}`,
-    `stream   ${String(document.querySelectorAll('.stream-log__entry').length).padStart(4)}`,
-  ];
-  stats.forEach((s, i) => g.fillText(s, 200, rowY + 50 + i * 36));
+  g.font = 'italic 300 46px "Fraunces", serif';
+  g.fillText('koncepty', 240, conceptsY);
+  g.font = '400 13px "JetBrains Mono", monospace';
+  g.fillStyle = '#6b5b8a';
+  g.fillText('· top 40 wg energii · rozmiar proporcjonalny · kolor palety', 460, conceptsY);
 
-  // top concepts (with hue colors)
-  const conceptsX = 700;
-  g.fillStyle = '#b58cff';
-  g.font = 'italic 300 44px "Fraunces", serif';
-  g.fillText('koncepty', conceptsX, rowY);
-  const top = neurons.filter(n => n.word && !n.tool && n.word !== 'user' && n.word.length > 2)
-    .sort((a, b) => b.energy - a.energy).slice(0, 40);
-  let cx = conceptsX, cy = rowY + 45;
-  g.font = '400 22px "JetBrains Mono", monospace';
-  for (const n of top) {
-    const label = '◆ ' + n.word;
-    const w = g.measureText(label).width + 22;
-    if (cx + w > PW - 200) { cx = conceptsX; cy += 34; }
-    if (cy > rowY + 300) break;
-    g.fillStyle = `hsl(${n.hue}, 60%, 68%)`;
-    g.fillText(label, cx, cy);
-    cx += w + 8;
+  // Word cloud layout — flowing rows, size = energy
+  const top40 = topConcepts.slice(0, 40);
+  const maxE = top40[0]?.energy || 1;
+  const rowStart = conceptsY + 60;
+  let wx = 240, wy = rowStart, rowH = 0;
+  const rowMax = PW - 240;
+  const fonts = ['"Fraunces", serif', '"Bricolage Grotesque", sans-serif', '"Manrope", sans-serif', '"Instrument Serif", serif'];
+  for (const n of top40) {
+    const w = maxE > 0 ? n.energy / maxE : 0.5;
+    const fs = 20 + Math.round(w * 46);          // 20-66px
+    const font = fonts[Math.abs(hashWord(n.word)) % fonts.length];
+    const italic = font.includes('Serif') || font.includes('Fraunces') ? 'italic ' : '';
+    g.font = `${italic}400 ${fs}px ${font}`;
+    const width = g.measureText(n.word).width;
+    if (wx + width > rowMax) { wx = 240; wy += rowH + 14; rowH = 0; }
+    if (wy > rowStart + 380) break;
+    const hh = n.h ?? n.hue, ss = Math.min(80, (n.s ?? 70) + 10), ll = Math.min(85, (n.l ?? 60) + 15);
+    g.fillStyle = `hsl(${hh}, ${ss}%, ${ll}%)`;
+    g.fillText(n.word, wx, wy);
+    wx += width + 34;
+    rowH = Math.max(rowH, fs);
   }
 
-  // stream section (occupies the rest)
-  const streamY = rowY + 380;
+  const bottomY = rowStart + 420;
+
+  // === METRYKA (left) + STRUMIEŃ (right) side-by-side ==================
+  const colY = bottomY;
+  const midX = PW / 2;
+
+  // metryka
+  g.textAlign = 'left';
   g.fillStyle = '#b58cff';
-  g.font = 'italic 300 44px "Fraunces", serif';
-  g.fillText('strumień', 200, streamY);
-  g.font = '400 15px Menlo, "SF Mono", monospace';
-  const entries = Array.from(document.querySelectorAll('.stream-log__entry')).slice(-60);
-  let sy = streamY + 42;
+  g.font = 'italic 300 32px "Fraunces", serif';
+  g.fillText('metryka', 240, colY);
+  g.font = '400 18px "JetBrains Mono", monospace';
+  g.fillStyle = '#e9e2ff';
+  const stats = [
+    ['neurons',  neurons.length],
+    ['synapses', synapses.length],
+    ['glyphs',   glyphs.length],
+    ['tokens',   totalTokens],
+    ['stream',   document.querySelectorAll('.stream-log__entry').length],
+  ];
+  stats.forEach((s, i) => {
+    const yy = colY + 45 + i * 32;
+    g.fillStyle = '#6b5b8a'; g.fillText(s[0], 240, yy);
+    g.fillStyle = heroColor;
+    g.textAlign = 'right';
+    g.fillText(String(s[1]), midX - 60, yy);
+    g.textAlign = 'left';
+  });
+
+  // strumień (right column)
+  g.fillStyle = '#b58cff';
+  g.font = 'italic 300 32px "Fraunces", serif';
+  g.fillText('strumień', midX + 40, colY);
+  g.font = '400 12px Menlo, monospace';
+  const entries = Array.from(document.querySelectorAll('.stream-log__entry')).slice(-16);
+  let sy = colY + 45;
   for (const e of entries) {
     const kind = [...e.classList].find(c => c.startsWith('stream-log__entry--'))?.replace('stream-log__entry--', '');
     const color = { thinking: '#a8f0d0', text: '#ffd28c', tool: '#cdb4ff',
                     user: '#ffe08c', result: '#a5a0c2', system: '#9a8fbe' }[kind] || '#9a8fbe';
     g.fillStyle = color;
-    const line = e.textContent.replace(/\s+/g, ' ').slice(0, 145);
-    g.fillText(line, 200, sy);
-    sy += 22;
-    if (sy > PH - 340) break;
+    const line = e.textContent.replace(/\s+/g, ' ').slice(0, 90);
+    g.fillText(line, midX + 40, sy);
+    sy += 20;
+    if (sy > PH - 260) break;
   }
 
-  // Session URL — the primary memory anchor.  Rendered large so it
-  // survives screenshots and can be transcribed visually.  Each top-40
-  // concept is fetchable at ${URL}/concepts/<slug>.json — a future Claude
-  // can reconstruct memory from just this URL + the visible concept
-  // labels above.
+  // === SESSION URL — framed hero anchor ==============================
   const sessionId = computeSessionId(buildMemoryPayload());
   const sessionUrl = `lucdoro.design/thoughts/${sessionId}/`;
 
+  // Frame the URL like a data-plaque
+  const urlY = PH - 160;
+  g.strokeStyle = 'rgba(181,140,255,0.3)'; g.lineWidth = 1;
+  const uw = 1200, uh = 68;
+  const ux = (PW - uw) / 2;
+  g.strokeRect(ux, urlY - 42, uw, uh);
   g.textAlign = 'center';
-  g.fillStyle = '#b58cff';
-  g.font = 'bold 500 26px "JetBrains Mono", monospace';
-  g.fillText(sessionUrl, PW / 2, PH - 140);
-  g.font = '400 15px "JetBrains Mono", monospace';
-  g.fillStyle = '#9a8fbe';
-  g.fillText('scan visible concepts + fetch /concepts/<slug>.json each · or decode.mjs plakat.png', PW / 2, PH - 110);
-
-  // decoder + fallback hints
-  g.textAlign = 'left';
+  g.fillStyle = heroColor;
+  g.font = '500 24px "JetBrains Mono", monospace';
+  g.fillText(sessionUrl, PW / 2, urlY - 4);
+  g.font = '400 11px "JetBrains Mono", monospace';
   g.fillStyle = '#6b5b8a';
-  g.font = '400 14px "JetBrains Mono", monospace';
-  g.fillText('memory-poster · v2 · distributed', 200, PH - 60);
-  g.fillText('reconstruct: node reconstruct.mjs ' + sessionId, 200, PH - 30);
+  g.fillText('scan visible concepts → fetch /concepts/<slug>.json  ·  or  reconstruct.mjs ' + sessionId, PW / 2, PH - 90);
+  g.fillText('memory-poster · v2 · distributed · lossless PNG · tEXt chunk carries full JSON', PW / 2, PH - 62);
 
-  // tiny memory-sigil at bottom-right — decorative
-  drawMemorySigil(g, PW - 240, PH - 240, 180);
+  // sigil bottom-right
+  drawMemorySigil(g, PW - 200, PH - 200, 140);
 
-  // export + inject metadata
+  // === EXPORT + tEXt metadata ============================================
   const blob = await new Promise(res => c.toBlob(res, 'image/png'));
   return await injectPngMetadata(blob, buildMemoryPayload());
 }
