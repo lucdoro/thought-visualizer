@@ -384,8 +384,8 @@ canvas#stage {
   <div>drag · xy/yz plane</div>
   <div>⇧ drag · xw/yw</div>
   <div>⌥ drag · xz/zw</div>
-  <div>scroll · zoom (0.12–20×)</div>
-  <div>+/− · step · 0 reset</div>
+  <div>scroll · dive in/out</div>
+  <div>+/− step · [/] fine · 0 reset</div>
   <div>space · pulse</div>
 </div>
 
@@ -469,7 +469,8 @@ const cam4 = {
   t:   { xy: 0, xz: 0, xw: 0, yz: 0, yw: 0, zw: 0 },     // targets (user-driven)
   v:   { xy: 0.00006, xz: 0.00004, xw: 0.00009, yz: 0.00005, yw: 0.00007, zw: 0.00003 }, // autospin
   distW: 900, distZ: 700,
-  zoom: 1,
+  dive: 0,     // camera position along z — positive = flying INTO the scene
+  tDive: 0,    // eased target (so wheel spins feel smooth, not jittery)
 };
 let drag = null;
 stage.addEventListener('mousedown', e => drag = {
@@ -495,19 +496,20 @@ window.addEventListener('mousemove', e => {
 });
 stage.addEventListener('wheel', e => {
   e.preventDefault();
-  // Trackpad pinch (ctrlKey) gets a stronger multiplier — feels natural.
-  const speed = e.ctrlKey ? 0.008 : 0.0025;
-  cam4.zoom = Math.max(0.12, Math.min(20, cam4.zoom * (1 - e.deltaY * speed)));
+  // Fly forward on scroll-up (deltaY < 0), backward on scroll-down.
+  // Trackpad pinch (ctrlKey) gets a stronger multiplier.
+  const step = e.ctrlKey ? 24 : 6;
+  cam4.tDive = Math.max(-2200, Math.min(cam4.distZ - 80, cam4.tDive - e.deltaY * step * 0.02));
 }, { passive: false });
-// Keyboard zoom: +/- for coarse, [/] for fine, 0 to reset
 window.addEventListener('keydown', e => {
   const t = document.activeElement?.tagName;
   if (t === 'INPUT' || t === 'TEXTAREA') return;
-  if (e.key === '+' || e.key === '=') cam4.zoom = Math.min(20, cam4.zoom * 1.25);
-  else if (e.key === '-' || e.key === '_') cam4.zoom = Math.max(0.12, cam4.zoom / 1.25);
-  else if (e.key === ']') cam4.zoom = Math.min(20, cam4.zoom * 1.08);
-  else if (e.key === '[') cam4.zoom = Math.max(0.12, cam4.zoom / 1.08);
-  else if (e.key === '0') cam4.zoom = 1;
+  const MAXDIVE = cam4.distZ - 80;
+  if (e.key === '+' || e.key === '=') cam4.tDive = Math.min(MAXDIVE, cam4.tDive + 90);
+  else if (e.key === '-' || e.key === '_') cam4.tDive = Math.max(-2200, cam4.tDive - 90);
+  else if (e.key === ']') cam4.tDive = Math.min(MAXDIVE, cam4.tDive + 30);
+  else if (e.key === '[') cam4.tDive = Math.max(-2200, cam4.tDive - 30);
+  else if (e.key === '0') cam4.tDive = 0;
 });
 
 // Rotate a 4D point through all six planes.
@@ -524,17 +526,25 @@ function rot4(p) {
   return { x, y, z, w };
 }
 
-// Project a 4D point onto the 2D canvas.  Returns screen coords + a
-// combined depth factor used to scale size and modulate opacity.
+// Project a 4D point onto the 2D canvas.
+// The `dive` term shifts the whole scene along z toward the viewer.  As
+// you dive in, points near origin loom huge (deep zoom into the cluster)
+// while points that would end up behind the viewer plane are culled —
+// they fly past the camera the way stars whip past a starship.  Returns
+// null for behind-camera points so draw loops can skip them.
 function project(p) {
   const r = rot4(p);
-  const wS = cam4.distW / Math.max(60, cam4.distW - r.w);
-  const x3 = r.x * wS, y3 = r.y * wS, z3 = r.z * wS;
-  const zS = cam4.distZ / Math.max(60, cam4.distZ - z3);
+  const wDenom = cam4.distW - r.w;
+  if (wDenom < 40) return null;
+  const wS = cam4.distW / wDenom;
+  const z3 = r.z * wS + cam4.dive;
+  const zDenom = cam4.distZ - z3;
+  if (zDenom < 40) return null;
+  const zS = cam4.distZ / zDenom;
   return {
-    x: x3 * zS * cam4.zoom,
-    y: y3 * zS * cam4.zoom,
-    depth: Math.max(0.15, Math.min(2.4, (wS + zS) * 0.5)),
+    x: r.x * wS * zS,
+    y: r.y * wS * zS,
+    depth: Math.max(0.05, Math.min(8, (wS + zS) * 0.5)),
   };
 }
 
@@ -688,6 +698,7 @@ function stepPhysics(dt) {
   // advance autospin + ease targets
   for (const k of Object.keys(cam4.v)) cam4.t[k] += cam4.v[k] * dt;
   for (const k of Object.keys(cam4.a)) cam4.a[k] += (cam4.t[k] - cam4.a[k]) * 0.06;
+  cam4.dive += (cam4.tDive - cam4.dive) * 0.09;
 
   for (const n of neurons) {
     // gentle attractor toward the 4D origin
@@ -758,17 +769,23 @@ function draw() {
   ctx.translate(W/2, H/2);
 
   // Project everything from 4D to screen; cache projections for this frame.
+  // Behind-camera points come back as null and are skipped below.
   const projN = neurons.map(project);
   const projG = glyphs.map(project);
 
   // Depth-sorted draw order — deeper first so nearer things overdraw.
-  const nOrder = neurons.map((_, i) => i).sort((a, b) => projN[a].depth - projN[b].depth);
-  const gOrder = glyphs.map((_, i) => i).sort((a, b) => projG[a].depth - projG[b].depth);
+  const nOrder = neurons.map((_, i) => i)
+    .filter(i => projN[i])
+    .sort((a, b) => projN[a].depth - projN[b].depth);
+  const gOrder = glyphs.map((_, i) => i)
+    .filter(i => projG[i])
+    .sort((a, b) => projG[a].depth - projG[b].depth);
 
   // glyph tapestry (background layer, depth-modulated)
   for (const i of gOrder) {
     const gl = glyphs[i];
     const p = projG[i];
+    if (!p) continue;
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(gl.rot + cam4.a.xy * 0.5);
@@ -791,6 +808,7 @@ function draw() {
     const a = neurons[s.a], b = neurons[s.b];
     if (!a || !b) continue;
     const pa = projN[s.a], pb = projN[s.b];
+    if (!pa || !pb) continue;
     const depthMix = (pa.depth + pb.depth) * 0.5;
     const alpha = (0.05 + s.strength * 0.25 + s.activity * 0.35) * Math.min(1, depthMix);
     const grad = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
@@ -812,6 +830,7 @@ function draw() {
     const a4 = { x: a.x + (b.x - a.x) * p.t, y: a.y + (b.y - a.y) * p.t,
                  z: a.z + (b.z - a.z) * p.t, w: a.w + (b.w - a.w) * p.t };
     const pp = project(a4);
+    if (!pp) continue;
     ctx.fillStyle = `hsla(${p.hue}, 90%, 75%, ${p.life * pp.depth})`;
     ctx.beginPath();
     ctx.arc(pp.x, pp.y, 1.4 * pp.depth, 0, Math.PI * 2);
