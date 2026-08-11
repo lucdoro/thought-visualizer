@@ -1103,10 +1103,10 @@ function stepPhysics(dt) {
   const N = Math.min(neurons.length, 200);
   for (let i = 0; i < N; i++) {
     const a = neurons[i];
-    if (activeSession !== 'all' && a.session !== activeSession) continue;
+    if (!passesSession(a)) continue;
     for (let j = i + 1; j < N; j++) {
       const b = neurons[j];
-      if (activeSession !== 'all' && b.session !== activeSession) continue;
+      if (!passesSession(b)) continue;
       const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, dw = b.w - a.w;
       const d2 = dx*dx + dy*dy + dz*dz + dw*dw + 0.1;
       if (d2 > 90000) continue;
@@ -1119,7 +1119,7 @@ function stepPhysics(dt) {
   }
   // 4D spring along synapses (filter by session)
   for (const s of synapses) {
-    if (activeSession !== 'all' && s.session !== activeSession) continue;
+    if (!passesSession(s)) continue;
     const a = neurons[s.a], b = neurons[s.b];
     if (!a || !b) continue;
     // ease strength toward target so new synapses tighten gradually
@@ -1170,13 +1170,12 @@ function draw() {
   const projG = glyphs.map(project);
 
   // Depth-sorted draw order — deeper first so nearer things overdraw.
-  // Filter to activeSession so parallel sessions render separately.
-  const inSession = (n) => activeSession === 'all' || n.session === activeSession;
+  // Session filter only when >1 session known and user picked one.
   const nOrder = neurons.map((_, i) => i)
-    .filter(i => projN[i] && inSession(neurons[i]))
+    .filter(i => projN[i] && passesSession(neurons[i]))
     .sort((a, b) => projN[a].depth - projN[b].depth);
   const gOrder = glyphs.map((_, i) => i)
-    .filter(i => projG[i] && inSession(glyphs[i]))
+    .filter(i => projG[i] && passesSession(glyphs[i]))
     .sort((a, b) => projG[a].depth - projG[b].depth);
 
   // glyph tapestry (background layer, depth-modulated)
@@ -1203,7 +1202,7 @@ function draw() {
 
   // synapses (4D-projected) — session filter
   for (const s of synapses) {
-    if (activeSession !== 'all' && s.session !== activeSession) continue;
+    if (!passesSession(s)) continue;
     const a = neurons[s.a], b = neurons[s.b];
     if (!a || !b) continue;
     const pa = projN[s.a], pb = projN[s.b];
@@ -1448,7 +1447,11 @@ const OBS_SERVER = 'http://localhost:4173';
 // never mix.  'all' merges everything (legacy behaviour).
 const knownSessions = new Set();
 let currentIngestSession = 'default';
-let activeSession = null;  // set when first session is noted
+let activeSession = null;  // null = show everything (no filter)
+// Filter is only meaningful when there are multiple sessions AND the user
+// picked one.  Empty / single-session state = show everything.
+function shouldFilter() { return activeSession && knownSessions.size > 1; }
+function passesSession(x) { return !shouldFilter() || x.session === activeSession; }
 
 function sessionIdFromObs(obs) {
   const p = obs.payload?.transcript_path || obs.payload?.session_id || '';
@@ -1465,7 +1468,7 @@ function setActiveSession(sid) {
   activeSession = sid;
   renderSessionPicker();
   document.querySelectorAll('.stream-log__entry').forEach(el => {
-    el.style.display = el.dataset.session === sid ? '' : 'none';
+    el.style.display = (shouldFilter() && el.dataset.session !== sid) ? 'none' : '';
   });
 }
 function renderSessionPicker() {
@@ -1570,7 +1573,7 @@ function pushLog(kind, tag, text) {
   const div = document.createElement('div');
   div.className = 'stream-log__entry stream-log__entry--' + kind;
   div.dataset.session = currentIngestSession;
-  if (activeSession !== 'all' && currentIngestSession !== activeSession) div.style.display = 'none';
+  if (shouldFilter() && currentIngestSession !== activeSession) div.style.display = 'none';
   const meta = document.createElement('span');
   meta.className = 'stream-log__meta';
   meta.textContent = timeTag();
