@@ -1149,9 +1149,6 @@ function draw() {
   ctx.fillStyle = `rgba(7,4,15,${clearAlpha})`;
   ctx.fillRect(0, 0, W, H);
 
-  // Vignette bloom — scaled by clearAlpha so a persistent (trail) canvas
-  // doesn't accumulate a bright violet centre over time.  At persistence
-  // 100% clearAlpha≈0 → no bloom added, trails stay flat.
   const bloomAlpha = 0.06 * clearAlpha;
   if (bloomAlpha > 0.001) {
     const g = ctx.createRadialGradient(W/2, H/2, 40, W/2, H/2, Math.max(W, H) * 0.7);
