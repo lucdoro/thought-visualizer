@@ -232,10 +232,76 @@ canvas#stage {
   color: var(--text-dim); font-style: italic; padding: 20px 0;
 }
 
-/* collected skills panel */
+/* --- Stream-of-consciousness log (left column) ------------------------- */
+.stream-log {
+  position: fixed; z-index: 4;
+  left: 26px; top: 110px; bottom: 78px;
+  width: 400px;
+  overflow-y: auto; overflow-x: hidden;
+  padding: 12px 16px 20px;
+  background: rgba(7,4,15,0.55);
+  border: 1px solid rgba(123,77,255,0.12);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  font-family: Menlo, "SF Mono", "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(123,77,255,0.3) transparent;
+}
+.stream-log::-webkit-scrollbar { width: 5px; }
+.stream-log::-webkit-scrollbar-track { background: transparent; }
+.stream-log::-webkit-scrollbar-thumb { background: rgba(123,77,255,0.3); border-radius: 3px; }
+.stream-log__header {
+  position: sticky; top: 0;
+  background: linear-gradient(180deg, rgba(7,4,15,0.95) 60%, transparent);
+  padding: 2px 0 8px;
+  font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--violet-hi); opacity: 0.7;
+  margin-bottom: 4px;
+}
+.stream-log__entry {
+  padding: 4px 0;
+  border-bottom: 1px dashed rgba(123,77,255,0.06);
+  word-break: break-word;
+  white-space: pre-wrap;
+  animation: slideIn .3s ease-out;
+}
+@keyframes slideIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+.stream-log__meta {
+  color: var(--text-dim); opacity: 0.4;
+  font-size: 9px; letter-spacing: 0.1em;
+  margin-right: 8px;
+}
+.stream-log__tag {
+  display: inline-block;
+  min-width: 42px;
+  padding: 0 5px;
+  margin-right: 8px;
+  border-radius: 3px;
+  font-size: 8px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  text-align: center;
+  vertical-align: 1px;
+}
+.stream-log__entry--thinking { color: #a8f0d0; }
+.stream-log__entry--thinking .stream-log__tag { background: rgba(126,255,198,0.14); color: #7effc6; }
+.stream-log__entry--text     { color: #ffd28c; }
+.stream-log__entry--text     .stream-log__tag { background: rgba(255,210,140,0.14); color: #ffd28c; }
+.stream-log__entry--tool     { color: #cdb4ff; }
+.stream-log__entry--tool     .stream-log__tag { background: rgba(181,140,255,0.16); color: #b58cff; }
+.stream-log__entry--result   { color: #a5a0c2; }
+.stream-log__entry--result   .stream-log__tag { background: rgba(120,120,180,0.14); color: #a5a0c2; }
+.stream-log__entry--user     { color: #ffe08c; font-weight: 500; }
+.stream-log__entry--user     .stream-log__tag { background: rgba(255,224,140,0.14); color: #ffe08c; }
+.stream-log__entry--system   { color: var(--text-dim); font-style: italic; opacity: 0.7; }
+
+/* collected skills panel — moved to right column so it doesn't fight the log */
 .skill-tray {
-  position: fixed; z-index: 4; top: 130px; left: 26px;
-  width: 240px; max-height: 60vh; overflow: auto;
+  position: fixed; z-index: 4; top: 130px; right: 26px;
+  width: 240px; max-height: 55vh; overflow: auto;
   display: none;
 }
 .skill-tray.has-items { display: block; }
@@ -289,6 +355,11 @@ canvas#stage {
 
 <div class="hud" style="top:70px;left:50%;transform:translateX(-50%);text-align:center;font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:var(--text-dim);text-transform:none;letter-spacing:0.02em;pointer-events:none;">
   <span id="obsStatus">łączę z /stream…</span>
+</div>
+
+<div class="stream-log" id="streamLog">
+  <div class="stream-log__header">stream of consciousness</div>
+  <div id="streamLogEntries"></div>
 </div>
 
 <div class="skill-tray" id="skillTray">
@@ -843,6 +914,36 @@ function stopLive() { if (liveES) { liveES.close(); liveES = null; } }
 // broadcast to this page over SSE.  What you see below is the model at work.
 
 const OBS_SERVER = 'http://localhost:4173';
+
+// --- Stream log (left column) --------------------------------------------
+// Append a terminal-style line for every observation, one under the other.
+// Kept lightweight: caps at 250 entries, auto-scrolls to bottom.
+const logEl = document.getElementById('streamLogEntries');
+function timeTag() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+function pushLog(kind, tag, text) {
+  if (!text) return;
+  const div = document.createElement('div');
+  div.className = 'stream-log__entry stream-log__entry--' + kind;
+  const meta = document.createElement('span');
+  meta.className = 'stream-log__meta';
+  meta.textContent = timeTag();
+  const tagEl = document.createElement('span');
+  tagEl.className = 'stream-log__tag';
+  tagEl.textContent = tag;
+  div.appendChild(meta);
+  div.appendChild(tagEl);
+  div.appendChild(document.createTextNode(text));
+  logEl.appendChild(div);
+  while (logEl.childElementCount > 250) logEl.firstElementChild.remove();
+  // stick to bottom when the user hasn't scrolled up
+  const parent = logEl.parentElement;
+  const nearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 80;
+  if (nearBottom) parent.scrollTop = parent.scrollHeight;
+}
 const TOOL_HUE = { // hue-shift per tool for at-a-glance recognition
   Read: 200, Write: 280, Edit: 280, MultiEdit: 280,
   Bash: 35, Grep: 145, Glob: 145,
@@ -878,6 +979,7 @@ function startObserver() {
 
     listen('session_start', () => {
       captionEl.innerHTML = '';
+      pushLog('system', 'sess', '── new session ──────────────');
       showCaption('◈ nowa sesja Claude Code');
       // gold burst from center
       for (let k = 0; k < 12; k++) {
@@ -892,10 +994,11 @@ function startObserver() {
     listen('user_prompt', obs => {
       const text = obs.payload?.prompt || obs.payload?.user_input || obs.text || '';
       if (text) {
+        pushLog('user', 'user', text);
         showCaption('▶ ' + text.slice(0, 140));
-        // spawn a big gold neuron representing this prompt at the origin
         neurons.push({
-          word: 'user', x: 0, y: 0, vx: 0, vy: 0,
+          word: 'user', x: 0, y: 0, z: 0, w: 0,
+          vx: 0, vy: 0, vz: 0, vw: 0,
           r: 10, energy: 2.4, born: performance.now(), hue: 45,
         });
         addThought(text);
@@ -920,8 +1023,7 @@ function startObserver() {
       if (userIdx >= 0) synapses.push({ a: userIdx, b: toolIdx, strength: 0.6, activity: 1 });
       spawnGlyph(n);
       showCaption('◆ ' + label);
-      // Feed the *content* of the input into the neural fabric — the words
-      // Claude is about to work with become their own concept-neurons.
+      pushLog('tool', tool.slice(0, 6).toLowerCase(), label + (extractInputText(tool, input) ? '\n  ' + extractInputText(tool, input).slice(0, 500).replace(/\n/g, '\n  ') : ''));
       const inputText = extractInputText(tool, input);
       if (inputText) addThought(inputText.slice(0, 800));
     });
@@ -943,11 +1045,10 @@ function startObserver() {
           break;
         }
       }
-      // Extract the *analyzed content* — text Claude just consumed —
-      // and let it grow into the neural mandala.
       const responseText = extractResponseText(obs.payload?.tool_response);
       if (responseText) {
         const snippet = responseText.slice(0, 1200);
+        pushLog('result', 'out', snippet.slice(0, 600));
         showCaption('▸ ' + snippet.slice(0, 160).replace(/\s+/g, ' '));
         addThought(snippet);
       }
@@ -962,12 +1063,14 @@ function startObserver() {
     listen('assistant_thinking', obs => {
       const t = obs.text || '';
       if (!t) return;
+      pushLog('thinking', 'mind', t);
       showCaption('◐ ' + t.slice(0, 240).replace(/\s+/g, ' '));
       addThought(t.slice(0, 2000), { hue: 150 });
     });
     listen('assistant_text', obs => {
       const t = obs.text || '';
       if (!t) return;
+      pushLog('text', 'say', t);
       showCaption('◈ ' + t.slice(0, 240).replace(/\s+/g, ' '));
       addThought(t.slice(0, 2000), { hue: 40 });
     });
