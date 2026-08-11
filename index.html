@@ -598,7 +598,6 @@ canvas#stage {
 
 <div class="mode-pill">
   <button class="btn is-active" data-mode="observe">graph</button>
-  <button class="btn" data-mode="metro">spores</button>
   <button class="btn" data-mode="sim">demo</button>
 </div>
 
@@ -638,19 +637,7 @@ canvas#stage {
 
 <div class="thoughtlog" id="thoughtlog"></div>
 
-<div class="metro-view" id="metroView">
-  <div class="metro-view__title">
-    memory spores <em>· kolonie = klastry konceptów · rdzeń = najgorętszy koncept · promienie do sąsiadów</em>
-    <span style="float:right; display:flex; gap:6px; align-items:center">
-      <button class="btn btn--ghost" id="metroFit" style="padding:3px 10px; font-size:9px">fit</button>
-      <button class="btn btn--ghost" id="metroZoomOut" style="padding:3px 8px; font-size:11px">−</button>
-      <button class="btn btn--ghost" id="metroZoomIn" style="padding:3px 8px; font-size:11px">+</button>
-    </span>
-  </div>
-  <div class="metro-svg-wrap">
-    <svg id="metroSvg" preserveAspectRatio="xMidYMid meet" viewBox="0 0 1200 700"></svg>
-  </div>
-</div>
+<!-- spores/metro removed -->
 
 <div class="control">
   <input id="prompt" placeholder="daj mi problem do przemyślenia..." />
@@ -690,10 +677,7 @@ function resize() {
   stage.style.width = W + 'px'; stage.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
-window.addEventListener('resize', () => {
-  resize();
-  if (currentMode === 'metro') renderMetroSVG();
-}); resize();
+window.addEventListener('resize', resize); resize();
 
 // --- 4D Camera -----------------------------------------------------------
 // The scene lives in four spatial dimensions. There are C(4,2)=6 rotation
@@ -1137,18 +1121,17 @@ function draw() {
   // record 2D projection so the click handler can hit-test neurons.
   recordProjection(projN, nOrder);
 
-  // neurons (nearer draws over farther)
+  // Pass 1: circles + halos
+  const nodeR = new Array(neurons.length);
   for (const idx of nOrder) {
     const n = neurons[idx];
     const p = projN[idx];
     const depth = p.depth;
     const bright = 55 + n.energy * 20;
-    // Sublinear depth scaling + hard cap keeps kulki tight even at macro dive.
     const r = Math.max(0.6, Math.min(70, n.r * Math.pow(Math.max(0.15, depth), 0.7)));
+    nodeR[idx] = r;
     ctx.fillStyle = `hsla(${n.hue}, 85%, ${bright}%, ${(0.55 + n.energy * 0.25) * Math.min(1, depth)})`;
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
-
-    // glow halo (skipped in still mode — biggest per-neuron cost)
     if (animMode === 'live') {
       const haloR = r * 4 * (0.4 + n.energy);
       const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
@@ -1157,16 +1140,39 @@ function draw() {
       ctx.fillStyle = halo;
       ctx.fillRect(p.x - haloR, p.y - haloR, haloR * 2, haloR * 2);
     }
+  }
 
-    // Labels: show for medium-energy or macro-close neurons; font scales
-    // with depth so a single close-up neuron gets a giant readable label.
-    if (n.word && (n.energy > 1.2 || depth > 3)) {
-      const alpha = Math.min(1, Math.max(0.3, (n.energy - 0.8) + depth * 0.15));
-      ctx.fillStyle = `hsla(${n.hue}, 60%, 85%, ${alpha})`;
-      const fs = Math.max(10, Math.min(220, 10 * depth));
-      ctx.font = `${Math.round(fs)}px "JetBrains Mono", monospace`;
-      ctx.fillText(n.word, p.x + r + 6, p.y + fs * 0.35);
+  // Pass 2: labels — energy-first, cap font at 26px (was 220), collision
+  // detection so labels never stack on top of each other.  Sublinear
+  // scaling with depth: sqrt so macro zoom nudges size, not explodes it.
+  const labelBoxes = [];
+  const labelOrder = nOrder.slice().sort((a, b) =>
+    (neurons[b].energy + projN[b].depth * 0.15) -
+    (neurons[a].energy + projN[a].depth * 0.15));
+  for (const idx of labelOrder) {
+    const n = neurons[idx];
+    if (!n.word) continue;
+    const p = projN[idx];
+    const depth = p.depth;
+    if (n.energy < 0.9 && depth < 1.5) continue;
+    const fs = Math.max(10, Math.min(26, 10 + Math.sqrt(depth) * 3.5));
+    ctx.font = `${Math.round(fs)}px "JetBrains Mono", ui-monospace, monospace`;
+    const w = ctx.measureText(n.word).width;
+    const h = fs * 1.15;
+    const r = nodeR[idx] || 4;
+    const lx = p.x + r + 6;
+    const ly = p.y - fs * 0.35;
+    // Collision skip — labels drawn earlier (higher energy) get the spot.
+    let hit = false;
+    for (const b of labelBoxes) {
+      if (lx < b.x + b.w + 2 && lx + w > b.x - 2 &&
+          ly < b.y + b.h + 2 && ly + h > b.y - 2) { hit = true; break; }
     }
+    if (hit) continue;
+    labelBoxes.push({ x: lx, y: ly, w, h });
+    const alpha = Math.min(1, Math.max(0.4, 0.55 + depth * 0.08));
+    ctx.fillStyle = `hsla(${n.hue}, 60%, 85%, ${alpha})`;
+    ctx.fillText(n.word, lx, ly + fs);
   }
 
   ctx.restore();
@@ -1613,17 +1619,9 @@ document.querySelectorAll('[data-mode]').forEach(b => {
     currentMode = b.dataset.mode;
     stopSim();
 
-    const isMetro = currentMode === 'metro';
-    document.getElementById('stage').style.display = isMetro ? 'none' : 'block';
-    document.querySelector('.grain').style.display = isMetro ? 'none' : 'block';
-    document.getElementById('metroView')?.classList.toggle('is-active', isMetro);
-
+    document.getElementById('stage').style.display = 'block';
+    document.querySelector('.grain').style.display = 'block';
     if (currentMode === 'observe') { startObserver(); document.getElementById('statMode').textContent = 'observer'; }
-    else if (currentMode === 'metro') {
-      startObserver();
-      requestAnimationFrame(() => requestAnimationFrame(renderMetroSVG));
-      document.getElementById('statMode').textContent = 'spores';
-    }
     else { stopObserver(); document.getElementById('statMode').textContent = 'demo'; }
   });
 });
