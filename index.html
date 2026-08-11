@@ -2149,22 +2149,91 @@ function computeSessionId(meta) {
 }
 
 function buildMemoryPayload() {
-  const streamEntries = Array.from(document.querySelectorAll('.stream-log__entry')).slice(-120).map(e => {
+  // Full stream with kind + hh:mm:ss + full sanitised text (up to 800 ch
+  // per line — a decoding LLM should get ~complete conversation).
+  const streamEntries = Array.from(document.querySelectorAll('.stream-log__entry')).slice(-220).map(e => {
     const kind = [...e.classList].find(c => c.startsWith('stream-log__entry--'))?.replace('stream-log__entry--', '') || 'x';
-    return { k: kind, t: sanitize(e.textContent.slice(0, 500), true) };
+    const time = e.querySelector('.stream-log__meta')?.textContent || '';
+    const tag  = e.querySelector('.stream-log__tag')?.textContent || '';
+    const raw  = e.textContent;
+    const body = raw.slice(time.length + tag.length).trim();
+    return { k: kind, time, tag, t: sanitize(body.slice(0, 800), true) };
   });
-  const concepts = neurons.filter(n => n.word && !n.tool && n.word !== 'user' && !looksSecret(n.word))
-    .map(n => ({ w: sanitize(n.word, true), e: +n.energy.toFixed(2), h: n.hue | 0 }))
-    .sort((a, b) => b.e - a.e).slice(0, 200);
-  const tools = neurons.filter(n => n.tool).map(n => sanitize(n.word, true)).slice(-100);
+
+  // Concepts with full colour tuple + relative birth time (ms since first
+  // neuron), so a reader can reconstruct chronology, not just ranking.
+  const t0 = neurons.length ? Math.min(...neurons.map(n => n.born)) : 0;
+  const concepts = neurons
+    .filter(n => n.word && !n.tool && n.word !== 'user' && !looksSecret(n.word))
+    .map(n => ({
+      w: sanitize(n.word, true),
+      e: +n.energy.toFixed(2),
+      h: n.h ?? n.hue | 0,
+      s: n.s ?? 85,
+      l: n.l ?? 60,
+      dt: Math.round((n.born - t0)),           // ms from session start
+      session: n.session || 'default',
+    }))
+    .sort((a, b) => b.e - a.e).slice(0, 240);
+
+  // Co-occurrence edges → recover the concept graph, not just the list.
+  const wordIdx = new Map();
+  concepts.forEach((c, i) => wordIdx.set(c.w, i));
+  const edges = synapses
+    .map(s => {
+      const wa = neurons[s.a]?.word;
+      const wb = neurons[s.b]?.word;
+      if (!wa || !wb) return null;
+      const ai = wordIdx.get(sanitize(wa, true));
+      const bi = wordIdx.get(sanitize(wb, true));
+      if (ai == null || bi == null) return null;
+      return { a: ai, b: bi, w: +s.strength.toFixed(2), session: s.session || 'default' };
+    })
+    .filter(x => x && x.w > 0.05)
+    .sort((a, b) => b.w - a.w)
+    .slice(0, 500);
+
+  // Tool usage summary + last-N invocations with their sanitised args.
+  const toolNodes = neurons.filter(n => n.tool);
+  const toolCounts = {};
+  for (const t of toolNodes) {
+    const name = (t.word || '').split(/[\s·]/)[0];
+    if (name) toolCounts[name] = (toolCounts[name] || 0) + 1;
+  }
+  const tool_calls = toolNodes.slice(-60).map(n => sanitize(n.word || '', true));
+
+  // Sessions active in this snapshot.
+  const sessions = [...knownSessions];
+
+  // Duration in seconds.
+  const duration_s = neurons.length ? Math.round((Date.now() - t0) / 1000) : 0;
+
   return {
-    v: 1,
+    v: 2,
     kind: 'thought-visualizer.memory-poster',
     ts: Date.now(),
     iso: new Date().toISOString(),
-    session: { neurons: neurons.length, synapses: synapses.length, glyphs: glyphs.length, tokens: totalTokens },
-    concepts, tools, stream: streamEntries,
+    // top-level shortcuts so a decoder doesn't need to sort
+    hero: concepts[0]?.w || 'sesja',
+    subtitle: concepts.slice(1, 5).map(c => c.w),
+    session: {
+      neurons: neurons.length,
+      synapses: synapses.length,
+      glyphs: glyphs.length,
+      tokens: totalTokens,
+      duration_s,
+      sessions,
+    },
+    concepts,       // top-240 with colour + chronology
+    edges,          // top-500 co-occurrence pairs
+    tools: toolCounts,
+    tool_calls,     // last-60 with args
+    stream: streamEntries,   // last-220 with time+kind+full text
     sanitized: true,
+    hint: 'This JSON is the full session memory.  Concepts are ordered by ' +
+          'energy; edges give co-occurrence weights; stream is chronological ' +
+          '(chat log with kind=user|thinking|text|tool|result|system).  ' +
+          'Feed this to any LLM for full context recovery.',
   };
 }
 

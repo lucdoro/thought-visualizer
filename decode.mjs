@@ -36,16 +36,47 @@ if (!found) { console.error('no thought-visualizer chunk found'); process.exit(1
 const meta = JSON.parse(found);
 
 if (mode === '--summary') {
-  console.log('date  :', meta.iso);
-  console.log('stats :', meta.session);
-  console.log('topic :', (meta.concepts || []).slice(0, 8).map(c => c.w).join(' · '));
-  console.log('tools :', [...new Set((meta.tools || []).map(t => t.split(' ')[0]))].join(', '));
+  console.log('date       :', meta.iso);
+  console.log('duration   :', (meta.session?.duration_s ?? '?') + 's');
+  console.log('hero       :', meta.hero || (meta.concepts || [])[0]?.w);
+  console.log('subtitle   :', (meta.subtitle || []).join(' · '));
+  console.log('stats      :', JSON.stringify(meta.session));
+  console.log('sessions   :', (meta.session?.sessions || []).join(', ') || '(single)');
+  console.log('topic-40   :', (meta.concepts || []).slice(0, 40).map(c => c.w).join(' · '));
+  console.log('tools      :', typeof meta.tools === 'object' && !Array.isArray(meta.tools)
+    ? Object.entries(meta.tools).map(([n, c]) => `${n}(${c})`).join(', ')
+    : [...new Set((meta.tools || []).map(t => String(t).split(' ')[0]))].join(', '));
+  console.log('edges      :', (meta.edges || []).length + ' co-occurrence pairs');
+  console.log('stream     :', (meta.stream || []).length + ' entries');
 } else if (mode === '--stream') {
   const color = { thinking: '\x1b[92m', text: '\x1b[93m', tool: '\x1b[95m',
                   result: '\x1b[90m', user: '\x1b[33m', system: '\x1b[36m' };
   for (const e of (meta.stream || [])) {
     const c = color[e.k] || '';
-    process.stdout.write(`${c}[${(e.k || '?').padEnd(8)}]\x1b[0m ${e.t}\n`);
+    const t = e.time ? `\x1b[90m${e.time}\x1b[0m ` : '';
+    process.stdout.write(`${t}${c}[${(e.k || '?').padEnd(8)}]\x1b[0m ${e.t}\n`);
+  }
+} else if (mode === '--md') {
+  // Emit as a memory.md-style document
+  console.log('---');
+  console.log('name:', meta.hero || 'reconstructed-session');
+  console.log('type: project');
+  console.log('date:', meta.iso);
+  console.log('---');
+  console.log('');
+  console.log(`# ${meta.hero}`);
+  console.log('');
+  if (meta.subtitle?.length) console.log('_' + meta.subtitle.join(' · ') + '_\n');
+  console.log('## Stats');
+  console.log('- neurons:', meta.session?.neurons, '· synapses:', meta.session?.synapses, '· tokens:', meta.session?.tokens, '· duration:', meta.session?.duration_s + 's');
+  if (meta.tools) console.log('- tools:', typeof meta.tools === 'object' && !Array.isArray(meta.tools) ? Object.entries(meta.tools).map(([n, c]) => `${n}(${c})`).join(', ') : '');
+  console.log('');
+  console.log('## Concepts (top 40)');
+  for (const c of (meta.concepts || []).slice(0, 40)) console.log(`- **${c.w}** (energy ${c.e})`);
+  console.log('');
+  console.log('## Conversation (chronological)');
+  for (const e of (meta.stream || [])) {
+    console.log(`- \`[${e.k}]\` ${e.time || ''} — ${e.t}`);
   }
 } else {
   console.log(JSON.stringify(meta, null, 2));
