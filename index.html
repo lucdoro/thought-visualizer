@@ -334,6 +334,20 @@ canvas#stage {
   width: 1px; height: 16px; background: rgba(255,255,255,0.15);
   margin: 0 6px;
 }
+.session-btn {
+  padding: 3px 8px !important;
+  font-size: 9px !important;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.1em;
+  opacity: 0.55;
+  transition: opacity .12s;
+}
+.session-btn:hover { opacity: 0.9; }
+.session-btn.is-active {
+  opacity: 1;
+  background: linear-gradient(180deg, var(--violet), var(--violet-lo));
+  border-color: var(--violet-hi);
+}
 
 /* --- Palette picker (from lucdoro.design) ------------------------------ */
 .palette-picker {
@@ -616,6 +630,8 @@ canvas#stage {
   <button class="btn is-active" data-mode="observe" title="obserwacja bieżącej sesji Claude Code — hooki strumieniują twoje/moje działania">graph</button>
   <button class="btn" data-mode="sim" title="demo/showreel — pre-scriptowane fragmenty do pokazu (używane głównie na GitHub Pages gdzie nie ma lokalnej sesji)">demo</button>
   <span class="mode-pill__divider"></span>
+  <span id="sessionPicker" style="display:inline-flex;gap:3px" title="wątki równoległych sesji Claude Code — kliknij aby zobaczyć tylko jedną"></span>
+  <span class="mode-pill__divider"></span>
   <span class="palette-picker__dot is-active" data-palette=""       style="background:#7b4dff" title="default (violet)"></span>
   <span class="palette-picker__dot"           data-palette="ocean"  style="background:#28469e" title="ocean"></span>
   <span class="palette-picker__dot"           data-palette="sunset" style="background:#faae62" title="sunset"></span>
@@ -636,10 +652,7 @@ canvas#stage {
   <div id="streamLogEntries"></div>
 </div>
 
-<div class="skill-tray" id="skillTray">
-  <div class="skill-tray__header">zebrane skille</div>
-  <div id="skillTrayItems"></div>
-</div>
+<!-- skill-tray removed — feature-remnant; use plakat + reconstruct.mjs instead -->
 
 <div class="skill-modal" id="skillModal">
   <div class="skill-card" id="skillCard">
@@ -937,7 +950,8 @@ function addThought(text, opts) {
         targetEnergy: 1.0,
         born: performance.now(),
         h: col.h, s: col.s, l: col.l,
-        hue: col.h,   // alias for legacy code paths
+        hue: col.h,
+        session: currentIngestSession,
       };
       neurons.push(n);
       idx = neurons.length - 1;
@@ -956,7 +970,7 @@ function addThought(text, opts) {
       const a = nodesThisThought[i], b = nodesThisThought[j];
       if (a === b) continue;
       let syn = synapses.find(s => (s.a === a && s.b === b) || (s.a === b && s.b === a));
-      if (!syn) { syn = { a, b, strength: 0.02, targetStrength: 0.2, activity: 0.4 }; synapses.push(syn); }
+      if (!syn) { syn = { a, b, strength: 0.02, targetStrength: 0.2, activity: 0.4, session: currentIngestSession }; synapses.push(syn); }
       syn.targetStrength = Math.min(1, (syn.targetStrength || syn.strength) + 0.15);
       syn.activity = Math.min(1, syn.activity + 0.4);
       if (animMode === 'live') {
@@ -985,6 +999,7 @@ function spawnGlyph(neuron) {
     alpha: 0,
     tAlpha: 0.05 + Math.random() * 0.08,
     born: performance.now(),
+    session: neuron.session,
   });
 }
 
@@ -1067,11 +1082,15 @@ function stepPhysics(dt) {
       n.r = Math.max(2.5, n.r * 0.9997);
     }
   }
-  // 4D repulsion (light; O(n^2) capped)
+  // 4D repulsion (light; O(n^2) capped) — filter by session so parallel
+  // sessions don't shove each other's neurons.
   const N = Math.min(neurons.length, 200);
   for (let i = 0; i < N; i++) {
+    const a = neurons[i];
+    if (activeSession !== 'all' && a.session !== activeSession) continue;
     for (let j = i + 1; j < N; j++) {
-      const a = neurons[i], b = neurons[j];
+      const b = neurons[j];
+      if (activeSession !== 'all' && b.session !== activeSession) continue;
       const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, dw = b.w - a.w;
       const d2 = dx*dx + dy*dy + dz*dz + dw*dw + 0.1;
       if (d2 > 90000) continue;
@@ -1082,8 +1101,9 @@ function stepPhysics(dt) {
       b.vx += nx*f; b.vy += ny*f; b.vz += nz*f; b.vw += nw*f;
     }
   }
-  // 4D spring along synapses
+  // 4D spring along synapses (filter by session)
   for (const s of synapses) {
+    if (activeSession !== 'all' && s.session !== activeSession) continue;
     const a = neurons[s.a], b = neurons[s.b];
     if (!a || !b) continue;
     // ease strength toward target so new synapses tighten gradually
@@ -1137,11 +1157,13 @@ function draw() {
   const projG = glyphs.map(project);
 
   // Depth-sorted draw order — deeper first so nearer things overdraw.
+  // Filter to activeSession so parallel sessions render separately.
+  const inSession = (n) => activeSession === 'all' || n.session === activeSession;
   const nOrder = neurons.map((_, i) => i)
-    .filter(i => projN[i])
+    .filter(i => projN[i] && inSession(neurons[i]))
     .sort((a, b) => projN[a].depth - projN[b].depth);
   const gOrder = glyphs.map((_, i) => i)
-    .filter(i => projG[i])
+    .filter(i => projG[i] && inSession(glyphs[i]))
     .sort((a, b) => projG[a].depth - projG[b].depth);
 
   // glyph tapestry (background layer, depth-modulated)
@@ -1166,8 +1188,9 @@ function draw() {
     ctx.restore();
   }
 
-  // synapses (4D-projected)
+  // synapses (4D-projected) — session filter
   for (const s of synapses) {
+    if (activeSession !== 'all' && s.session !== activeSession) continue;
     const a = neurons[s.a], b = neurons[s.b];
     if (!a || !b) continue;
     const pa = projN[s.a], pb = projN[s.b];
@@ -1409,6 +1432,47 @@ function stopLive() { if (liveES) { liveES.close(); liveES = null; } }
 
 const OBS_SERVER = 'http://localhost:4173';
 
+// ---- Multi-session separation ------------------------------------------
+// Parallel Claude Code sessions each get their own tag (from transcript
+// path); physics + render + log filter to the active session so graphs
+// never mix.  'all' merges everything (legacy behaviour).
+const knownSessions = new Set();
+let currentIngestSession = 'default';
+let activeSession = 'all';
+
+function sessionIdFromObs(obs) {
+  const p = obs.payload?.transcript_path || obs.payload?.session_id || '';
+  if (!p) return 'default';
+  // last path segment, drop .jsonl, keep first 8 chars for readability
+  return String(p).split('/').pop().replace(/\.jsonl$/, '').slice(0, 8) || 'default';
+}
+function noteSession(sid) {
+  if (knownSessions.has(sid)) return;
+  knownSessions.add(sid);
+  renderSessionPicker();
+}
+function setActiveSession(sid) {
+  activeSession = sid;
+  renderSessionPicker();
+  // Hide/show log entries for this session
+  document.querySelectorAll('.stream-log__entry').forEach(el => {
+    el.style.display = (sid !== 'all' && el.dataset.session !== sid) ? 'none' : '';
+  });
+}
+function renderSessionPicker() {
+  const el = document.getElementById('sessionPicker');
+  if (!el) return;
+  const sessions = ['all', ...knownSessions];
+  el.innerHTML = sessions.map(s => {
+    const active = s === activeSession ? 'is-active' : '';
+    const label = s === 'all' ? 'all' : s;
+    return `<button class="btn session-btn ${active}" data-sid="${s}" title="session ${s}">${label}</button>`;
+  }).join('');
+  el.querySelectorAll('.session-btn').forEach(b => {
+    b.addEventListener('click', () => setActiveSession(b.dataset.sid));
+  });
+}
+
 // =========================================================================
 //   SANITIZE
 //   Everything that flows into the mandala, log, or poster metadata gets
@@ -1493,6 +1557,8 @@ function pushLog(kind, tag, text) {
   text = sanitize(text, true);
   const div = document.createElement('div');
   div.className = 'stream-log__entry stream-log__entry--' + kind;
+  div.dataset.session = currentIngestSession;
+  if (activeSession !== 'all' && currentIngestSession !== activeSession) div.style.display = 'none';
   const meta = document.createElement('span');
   meta.className = 'stream-log__meta';
   meta.textContent = timeTag();
@@ -1539,7 +1605,12 @@ function startObserver() {
       document.getElementById('obsStatus').textContent = 'observer · offline (serwer nie odpowiada na :4173)';
     };
     const listen = (evt, fn) => obsES.addEventListener(evt, e => {
-      try { fn(JSON.parse(e.data)); } catch (err) { console.error(err); }
+      try {
+        const obs = JSON.parse(e.data);
+        currentIngestSession = sessionIdFromObs(obs);
+        noteSession(currentIngestSession);
+        fn(obs);
+      } catch (err) { console.error(err); }
     });
 
     listen('session_start', () => {
@@ -1841,15 +1912,7 @@ async function openContextCard(word) {
   life.appendChild(lifeBox);
   body.appendChild(life);
 
-  // save button
-  const actions = document.createElement('div');
-  actions.className = 'skill-card__actions';
-  const saveBtn = document.createElement('button');
-  saveBtn.className = 'btn';
-  saveBtn.textContent = 'zachowaj w skrzynce';
-  saveBtn.onclick = () => { collectSkill({ word, skill: word, context: ctx }); closeSkill(); };
-  actions.appendChild(saveBtn);
-  body.appendChild(actions);
+  // (save-to-tray removed; koncepty trafiają do plakatu automatycznie)
 
   // Fetch mechanism card (sends context so AI has material to work with)
   try {
