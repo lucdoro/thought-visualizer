@@ -644,7 +644,8 @@ canvas#stage {
   <span class="palette-picker__dot"           data-palette="neon"   style="background:#fffe15" title="neon"></span>
   <span id="chromeToggle" title="apply palette to interface chrome too" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">chrome</span>
   <span class="mode-pill__divider"></span>
-  <span id="audioToggle" title="react to microphone / system audio — pulses neurons on beat" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">♪ mic</span>
+  <span id="audioToggle" title="react to system audio — Aggregate/Composite device w Audio MIDI Setup" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">♪ off</span>
+  <select id="audioDevice" class="session-select" style="display:none;margin-left:4px;max-width:180px" title="urządzenie audio"></select>
 </div>
 
 <div class="palette-picker" id="palettePicker" style="display:none"></div>
@@ -2756,22 +2757,36 @@ let audioLevel = 0, audioBass = 0, audioMid = 0, audioTreble = 0;
 let audioCtx = null, audioAnalyser = null, audioData = null, audioStream = null;
 let audioActive = false;
 
-async function toggleAudio() {
-  const btn = document.getElementById('audioToggle');
-  if (audioActive) {
-    audioStream?.getTracks().forEach(t => t.stop());
-    audioCtx?.close();
-    audioStream = audioCtx = audioAnalyser = audioData = null;
-    audioLevel = audioBass = audioMid = audioTreble = 0;
-    audioActive = false;
-    btn.style.background = 'transparent';
-    btn.style.color = 'var(--text-dim)';
-    return;
-  }
+const AUDIO_DEVICE_KEY = 'thought-visualizer:audioDevice';
+
+async function refreshAudioDevices() {
+  // Labels require prior permission — trigger once quietly.
   try {
-    audioStream = await navigator.mediaDevices.getUserMedia({ audio: {
-      echoCancellation: false, noiseSuppression: false, autoGainControl: false,
-    } });
+    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+    probe.getTracks().forEach(t => t.stop());
+  } catch {}
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const inputs = devices.filter(d => d.kind === 'audioinput');
+  const sel = document.getElementById('audioDevice');
+  const saved = localStorage.getItem(AUDIO_DEVICE_KEY) || '';
+  sel.innerHTML = inputs.map(d => {
+    const s = d.deviceId === saved ? 'selected' : '';
+    return `<option value="${d.deviceId}" ${s}>${d.label || 'audio device'}</option>`;
+  }).join('');
+  sel.style.display = 'inline-block';
+  return inputs;
+}
+
+async function startAudioFromDevice(deviceId) {
+  const btn = document.getElementById('audioToggle');
+  await stopAudio();
+  try {
+    audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+      },
+    });
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const src = audioCtx.createMediaStreamSource(audioStream);
     audioAnalyser = audioCtx.createAnalyser();
@@ -2780,14 +2795,40 @@ async function toggleAudio() {
     src.connect(audioAnalyser);
     audioData = new Uint8Array(audioAnalyser.frequencyBinCount);
     audioActive = true;
+    btn.textContent = '♪ live';
     btn.style.background = 'var(--violet)';
     btn.style.color = '#fff';
+    if (deviceId) localStorage.setItem(AUDIO_DEVICE_KEY, deviceId);
   } catch (err) {
     console.error('audio init failed:', err);
-    alert('Nie mogę dostać się do mikrofonu: ' + err.message);
+    alert('Nie mogę czytać z tego urządzenia: ' + err.message);
   }
 }
+
+async function stopAudio() {
+  const btn = document.getElementById('audioToggle');
+  audioStream?.getTracks().forEach(t => t.stop());
+  try { await audioCtx?.close(); } catch {}
+  audioStream = audioCtx = audioAnalyser = audioData = null;
+  audioLevel = audioBass = audioMid = audioTreble = 0;
+  audioActive = false;
+  btn.textContent = '♪ off';
+  btn.style.background = 'transparent';
+  btn.style.color = 'var(--text-dim)';
+}
+
+async function toggleAudio() {
+  if (audioActive) { await stopAudio(); document.getElementById('audioDevice').style.display = 'none'; return; }
+  const inputs = await refreshAudioDevices();
+  if (!inputs.length) { alert('Brak dostępnych urządzeń audio input'); return; }
+  const saved = localStorage.getItem(AUDIO_DEVICE_KEY) || '';
+  const pick = inputs.find(d => d.deviceId === saved)?.deviceId || inputs[0].deviceId;
+  await startAudioFromDevice(pick);
+}
 document.getElementById('audioToggle').addEventListener('click', toggleAudio);
+document.getElementById('audioDevice').addEventListener('change', e => {
+  if (audioActive) startAudioFromDevice(e.target.value);
+});
 
 function sampleAudio() {
   if (!audioActive || !audioAnalyser) return;
