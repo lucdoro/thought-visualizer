@@ -1070,18 +1070,21 @@ function stepPhysics(dt) {
 
 // --- Render --------------------------------------------------------------
 function draw() {
-  // Persistence slider drives the clear alpha: 0% = full clear (1.0),
-  // 100% = permanent trails (0.001, near-transparent).
   const clearAlpha = Math.max(0.001, 1 - persistence);
   ctx.fillStyle = `rgba(7,4,15,${clearAlpha})`;
   ctx.fillRect(0, 0, W, H);
 
-  // radial vignette bloom
-  const g = ctx.createRadialGradient(W/2, H/2, 40, W/2, H/2, Math.max(W, H) * 0.7);
-  g.addColorStop(0, 'rgba(123,77,255,0.06)');
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
+  // Vignette bloom — scaled by clearAlpha so a persistent (trail) canvas
+  // doesn't accumulate a bright violet centre over time.  At persistence
+  // 100% clearAlpha≈0 → no bloom added, trails stay flat.
+  const bloomAlpha = 0.06 * clearAlpha;
+  if (bloomAlpha > 0.001) {
+    const g = ctx.createRadialGradient(W/2, H/2, 40, W/2, H/2, Math.max(W, H) * 0.7);
+    g.addColorStop(0, `rgba(123,77,255,${bloomAlpha})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
 
   ctx.save();
   ctx.translate(W/2, H/2);
@@ -1172,9 +1175,11 @@ function draw() {
     ctx.fillStyle = `hsla(${n.hue}, 85%, ${bright}%, ${(0.55 + n.energy * 0.25) * Math.min(1, depth)})`;
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
     if (animMode === 'live') {
+      // Halo alpha also scales with clearAlpha so trails don't slowly
+      // wash a stationary neuron's aura to white.
       const haloR = r * 4 * (0.4 + n.energy);
       const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
-      halo.addColorStop(0, `hsla(${n.hue}, 90%, 70%, ${0.35 * n.energy * depth})`);
+      halo.addColorStop(0, `hsla(${n.hue}, 90%, 70%, ${0.35 * n.energy * depth * (0.15 + 0.85 * clearAlpha)})`);
       halo.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = halo;
       ctx.fillRect(p.x - haloR, p.y - haloR, haloR * 2, haloR * 2);
@@ -1196,14 +1201,16 @@ function draw() {
     const p = projN[idx];
     const depth = p.depth;
     if (n.energy < 0.9 && depth < 1.2) continue;
-    // 1:1 at base depth (11px), linear thereafter, hard cap keeps a
-    // single macro-zoomed label from blowing past the viewport.
-    const fs = Math.max(11, Math.min(320, 11 * depth));
+    const r = nodeR[idx] || 4;
+    // Label scales WITH the neuron radius (which itself scales sub-linearly
+    // with depth).  Ratio label/kulka ≈ 1.6 stays constant across zooms —
+    // so 100% zoom is 1:1 native, and diving keeps the SAME visual
+    // proportion instead of blowing text up faster than the scene.
+    const fs = Math.max(11, Math.min(80, r * 1.6 + 8));
     ctx.font = `${Math.round(fs)}px "JetBrains Mono", ui-monospace, monospace`;
     const w = ctx.measureText(n.word).width;
     const h = fs * 1.15;
-    const r = nodeR[idx] || 4;
-    const lx = p.x + r + fs * 0.4;
+    const lx = p.x + r + fs * 0.35;
     const ly = p.y - fs * 0.4;
     let hit = false;
     for (const b of labelBoxes) {
