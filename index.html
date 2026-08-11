@@ -668,7 +668,11 @@ function resize() {
   stage.style.width = W + 'px'; stage.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
-window.addEventListener('resize', resize); resize();
+window.addEventListener('resize', () => {
+  resize();
+  if (currentMode === 'metro') renderMetroSVG();
+  if (currentMode === 'chart') renderChartSVG();
+}); resize();
 
 // --- 4D Camera -----------------------------------------------------------
 // The scene lives in four spatial dimensions. There are C(4,2)=6 rotation
@@ -1585,8 +1589,16 @@ document.querySelectorAll('[data-mode]').forEach(b => {
     document.getElementById('chartView')?.classList.toggle('is-active', isChart);
 
     if (currentMode === 'observe') { startObserver(); document.getElementById('statMode').textContent = 'observer'; }
-    else if (currentMode === 'metro') { startObserver(); renderMetroSVG(); document.getElementById('statMode').textContent = 'metro'; }
-    else if (currentMode === 'chart') { startObserver(); renderChartSVG(); document.getElementById('statMode').textContent = 'chart'; }
+    else if (currentMode === 'metro') {
+      startObserver();
+      requestAnimationFrame(() => requestAnimationFrame(renderMetroSVG));
+      document.getElementById('statMode').textContent = 'metro';
+    }
+    else if (currentMode === 'chart') {
+      startObserver();
+      requestAnimationFrame(() => requestAnimationFrame(renderChartSVG));
+      document.getElementById('statMode').textContent = 'chart';
+    }
     else { stopObserver(); document.getElementById('statMode').textContent = 'demo'; }
   });
 });
@@ -2276,7 +2288,7 @@ function computeMetroLayout() {
     nodeAt.set(i, nodes.length);
     nodes.push({ neuronIdx: i, word: n.word, hue: n.hue, born: n.born, energy: n.energy });
   }
-  if (nodes.length < 3) return [];
+  if (nodes.length === 0) return [];
 
   // Union-Find over synapses.  Threshold on effective strength (whichever
   // is bigger between current and target) so freshly-formed synapses
@@ -2299,11 +2311,11 @@ function computeMetroLayout() {
     if (!groups.has(r)) groups.set(r, []);
     groups.get(r).push(n);
   });
-  const minSize = nodes.length < 8 ? 1 : 2;
+  // Never filter out singletons — every concept deserves a station.
+  // Solitary stations show as a single dot on their own line.
   const lines = [...groups.values()]
-    .filter(g => g.length >= minSize)
     .sort((a, b) => b.length - a.length)
-    .slice(0, 12);
+    .slice(0, 14);
   for (const line of lines) line.sort((a, b) => a.born - b.born);
   return lines;
 }
@@ -2316,10 +2328,21 @@ let metroPan = { x: 0, y: 0 };
 function renderMetroSVG() {
   const svg = document.getElementById('metroSvg');
   if (!svg) return;
-  // Fill the actual container — no letterboxing, no shrink-to-fit.
   const wrap = svg.parentElement;
-  const rect = wrap.getBoundingClientRect();
-  if (rect.width < 100 || rect.height < 100) return;
+  let rect = wrap.getBoundingClientRect();
+  // If the container has no size yet (mode just switched, layout not
+  // computed), fall back to viewport minus chrome so at least SOMETHING
+  // renders on the first frame.
+  if (rect.width < 100 || rect.height < 100) {
+    rect = { width: Math.max(800, window.innerWidth - 60), height: Math.max(500, window.innerHeight - 200) };
+  }
+  try { return _renderMetroSVGInner(svg, rect); }
+  catch (err) {
+    svg.innerHTML = `<text x="${rect.width/2}" y="${rect.height/2}" text-anchor="middle" fill="#ff6b6b" font-family="monospace" font-size="14">metro render error: ${String(err.message).replace(/[<&]/g,'')}</text>`;
+    console.error('metro render error:', err);
+  }
+}
+function _renderMetroSVGInner(svg, rect) {
 
   const lines = computeMetroLayout();
   const marginL = 200, marginR = 80, marginT = 70, marginB = 100;
