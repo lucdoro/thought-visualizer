@@ -643,6 +643,7 @@ canvas#stage {
   <span class="palette-picker__dot"           data-palette="milano" style="background:#a90e02" title="milano"></span>
   <span class="palette-picker__dot"           data-palette="neon"   style="background:#fffe15" title="neon"></span>
   <span id="chromeToggle" title="apply palette to interface chrome too" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">chrome</span>
+  <span id="labelsToggle" title="pokaż/ukryj podpisy węzłów" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">labels</span>
   <span class="mode-pill__divider"></span>
   <span id="audioToggle" title="react to system audio — Aggregate/Composite device w Audio MIDI Setup" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">♪ off</span>
   <select id="audioDevice" class="session-select" style="display:none;margin-left:4px;max-width:180px" title="urządzenie audio"></select>
@@ -1269,11 +1270,8 @@ function draw() {
     }
   }
 
-  // Pass 2: labels scale LINEARLY with zoom (depth).  At base zoom
-  // (depth ≈ 1) fonts are ~11px = 1:1 native.  As you dive, labels grow
-  // proportionally — a 10× dive means 10× bigger text.  Collision skip
-  // in energy-order means the closest / most active concepts win the
-  // spot and lesser labels are dropped so nothing overlaps.
+  // Pass 2: labels (skipped entirely when the labels toggle is off)
+  if (!showLabels) { ctx.restore(); return; }
   const labelBoxes = [];
   const labelOrder = nOrder.slice().sort((a, b) =>
     (neurons[b].energy + projN[b].depth * 0.5) -
@@ -2744,6 +2742,19 @@ document.getElementById('chromeToggle').addEventListener('click', () => {
 });
 applyChrome(localStorage.getItem(CHROME_KEY) === '1');
 applyPalette(localStorage.getItem(PALETTE_KEY) || '');
+
+// Labels toggle — show/hide node captions on the mandala.
+const LABELS_KEY = 'thought-visualizer:labels';
+let showLabels = localStorage.getItem(LABELS_KEY) !== '0';
+function applyLabels(on) {
+  showLabels = on;
+  const btn = document.getElementById('labelsToggle');
+  btn.style.background = on ? 'var(--violet)' : 'transparent';
+  btn.style.color = on ? '#fff' : 'var(--text-dim)';
+  localStorage.setItem(LABELS_KEY, on ? '1' : '0');
+}
+document.getElementById('labelsToggle').addEventListener('click', () => applyLabels(!showLabels));
+applyLabels(showLabels);
 
 // ---- Audio reactivity ---------------------------------------------------
 // Grab microphone input, compute short-term energy each frame, publish
