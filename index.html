@@ -826,22 +826,46 @@ let totalTokens = 0;
 const STOP = new Set(('the a an and or but if then when so is are was were be been being do does did have has had i you we they it this that these those of to in on for with as by from at into onto not no yes about there here what which who how why where can could should would may might must will shall just very really quite also more most some any all each every ' +
   'to jest są była był byli być robić robił mieć miał na w z do od dla przez o po nad pod przed za obok jak co gdzie kto który która które jaki jaka jakie tak nie tylko bardzo już oraz albo lub ale bo bo więc czyli może musi powinien będzie').split(/\s+/));
 
-// Node hue palettes derived from lucdoro.design colours.  Each palette is
-// an array of hues; the concept's word-hash picks one deterministically.
+// Node colour palettes derived from lucdoro.design.  Each entry is an
+// [hue, saturation, lightness] triple sampled from the palette's actual
+// hex colours (bg / text / surface / primary / WA accent).  This way a
+// single palette gives you both DEEP and PALE variants, not one uniform
+// saturated hue — Ocean feels like navy + pale cyan + coral, not just
+// "blue".
 const NODE_PALETTES = {
-  '':       [220, 240, 260, 275, 285, 295, 305, 320],           // default violet range
-  ocean:    [200, 210, 220, 200, 355, 5, 15, 190],              // navy + coral
-  sunset:   [285, 295, 25, 30, 40, 155, 160, 305],              // aubergine + apricot + mint
-  sky:      [190, 200, 210, 195, 40, 45, 200, 205],             // sky-blue + amber
-  milano:   [355, 0, 5, 10, 175, 180, 45, 55],                  // crimson + teal + cream
-  neon:     [55, 60, 65, 325, 330, 340, 210, 55],               // lemon + magenta + slate
+  '': [        /* default — violet field */
+    [275, 80, 65], [260, 75, 62], [285, 70, 60], [295, 75, 68],
+    [320, 70, 65], [240, 65, 55], [270, 85, 72], [305, 60, 58],
+  ],
+  ocean: [     /* combo01 · #28469E navy + #CAE8E8 cyan + #FF7B85 coral */
+    [225, 60, 45], [220, 55, 55], [210, 60, 62], [200, 55, 70],
+    [180, 50, 78], [190, 45, 82], [356, 90, 72], [350, 75, 68],
+  ],
+  sunset: [    /* combo02 · #3E0856 aubergine + #FAAE62 apricot + #00E5A0 mint */
+    [286, 80, 25], [295, 65, 42], [280, 55, 55], [30, 90, 65],
+    [35, 85, 72], [25, 80, 60], [45, 80, 70], [161, 90, 55],
+  ],
+  sky: [       /* combo03 · #04344C ink + #B0EDF9 pale-blue + #FFB74D amber */
+    [200, 85, 25], [200, 70, 45], [195, 65, 62], [192, 70, 78],
+    [188, 60, 85], [40, 95, 65], [45, 85, 60], [30, 90, 68],
+  ],
+  milano: [    /* combo04 · #A90E02 crimson + #FFFBD4 cream + #00E5C4 teal */
+    [4, 90, 35], [8, 80, 50], [355, 75, 60], [10, 85, 68],
+    [55, 90, 88], [50, 75, 82], [171, 85, 45], [175, 70, 55],
+  ],
+  neon: [      /* combo05 · #0C1E29 slate + #FFFE15 lemon + #FF3A9E magenta */
+    [60, 100, 55], [58, 90, 68], [55, 85, 75], [328, 100, 62],
+    [335, 90, 55], [340, 85, 68], [205, 45, 30], [210, 50, 45],
+  ],
 };
-function hueForConcept(word) {
+function colorForConcept(word) {
   const pal = NODE_PALETTES[currentPalette || ''] || NODE_PALETTES[''];
   let h = 0;
   for (let i = 0; i < word.length; i++) h = (h * 31 + word.charCodeAt(i)) >>> 0;
-  return pal[h % pal.length];
+  const [hu, sa, li] = pal[h % pal.length];
+  return { h: hu, s: sa, l: li };
 }
+function hueForConcept(word) { return colorForConcept(word).h; }
 let currentPalette = '';
 
 // Uniform random point on the 3-sphere (surface of a 4-ball) of radius r.
@@ -873,8 +897,6 @@ function addThought(text, opts) {
   for (const w of meaningful) {
     let idx = concepts.get(w);
     if (idx === undefined) {
-      // Spawn close to a related neighbour when one exists — otherwise on the
-      // hypersphere.  Cuts the "warp-in from nowhere" jolt of new nodes.
       let seed = null;
       if (nodesThisThought.length) {
         seed = neurons[nodesThisThought[nodesThisThought.length - 1]];
@@ -886,16 +908,20 @@ function addThought(text, opts) {
             w: seed.w + (Math.random() - 0.5) * 80 }
         : randomOnHypersphere(120 + Math.random() * 140);
       const targetR = 1.6 + Math.random() * 1.2;
+      const col = hueOverride != null
+        ? { h: hueOverride + (Math.random() * 20 - 10), s: 85, l: 65 }
+        : colorForConcept(w);
       const n = {
         word: w,
         x: p4.x, y: p4.y, z: p4.z, w: p4.w,
         vx: 0, vy: 0, vz: 0, vw: 0,
-        r: 0.4,           // ramp up
+        r: 0.4,
         targetR,
-        energy: 0.05,     // fade in
+        energy: 0.05,
         targetEnergy: 1.0,
         born: performance.now(),
-        hue: hueOverride != null ? hueOverride + (Math.random() * 20 - 10) : hueForConcept(w),
+        h: col.h, s: col.s, l: col.l,
+        hue: col.h,   // alias for legacy code paths
       };
       neurons.push(n);
       idx = neurons.length - 1;
@@ -1163,23 +1189,27 @@ function draw() {
   // record 2D projection so the click handler can hit-test neurons.
   recordProjection(projN, nOrder);
 
-  // Pass 1: circles + halos
+  // Pass 1: circles + halos.  Neuron's own s/l from the palette drive
+  // the actual colour — energy only nudges lightness a touch, doesn't
+  // wipe out palette identity.
   const nodeR = new Array(neurons.length);
   for (const idx of nOrder) {
     const n = neurons[idx];
     const p = projN[idx];
     const depth = p.depth;
-    const bright = 55 + n.energy * 20;
+    const s = n.s ?? 85;
+    const l = (n.l ?? 60) + Math.min(12, n.energy * 6);  // +12% lightness at peak
     const r = Math.max(0.6, Math.min(70, n.r * Math.pow(Math.max(0.15, depth), 0.7)));
     nodeR[idx] = r;
-    ctx.fillStyle = `hsla(${n.hue}, 85%, ${bright}%, ${(0.55 + n.energy * 0.25) * Math.min(1, depth)})`;
+    ctx.fillStyle = `hsla(${n.h ?? n.hue}, ${s}%, ${l}%, ${(0.55 + n.energy * 0.25) * Math.min(1, depth)})`;
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
     if (animMode === 'live') {
-      // Halo alpha also scales with clearAlpha so trails don't slowly
-      // wash a stationary neuron's aura to white.
       const haloR = r * 4 * (0.4 + n.energy);
       const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
-      halo.addColorStop(0, `hsla(${n.hue}, 90%, 70%, ${0.35 * n.energy * depth * (0.15 + 0.85 * clearAlpha)})`);
+      // Halo uses palette lightness + slight boost, so pale-cyan halo
+      // stays pale, deep-navy halo stays deep — no more washing to white.
+      const haloL = Math.min(90, l + 10);
+      halo.addColorStop(0, `hsla(${n.h ?? n.hue}, ${s}%, ${haloL}%, ${0.35 * n.energy * depth * (0.15 + 0.85 * clearAlpha)})`);
       halo.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = halo;
       ctx.fillRect(p.x - haloR, p.y - haloR, haloR * 2, haloR * 2);
@@ -1220,7 +1250,8 @@ function draw() {
     if (hit) continue;
     labelBoxes.push({ x: lx, y: ly, w, h });
     const alpha = Math.min(1, Math.max(0.5, 0.55 + depth * 0.06));
-    ctx.fillStyle = `hsla(${n.hue}, 60%, 85%, ${alpha})`;
+    const labelL = Math.min(90, (n.l ?? 60) + 20);  // lift for legibility
+    ctx.fillStyle = `hsla(${n.h ?? n.hue}, ${Math.max(40, (n.s ?? 85) - 25)}%, ${labelL}%, ${alpha})`;
     ctx.fillText(n.word, lx, ly + fs);
   }
 
@@ -2583,9 +2614,13 @@ const PALETTE_KEY = 'thought-visualizer:palette';
 const CHROME_KEY  = 'thought-visualizer:chrome';
 function applyPalette(name) {
   currentPalette = name || '';
-  // Reassign hue on all existing neurons so palette change is instant.
+  // Reassign full colour on all existing neurons so palette change is
+  // instant and applies deep/pale variants, not just hue rotation.
   for (const n of neurons) {
-    if (n.word && !n.tool) n.hue = hueForConcept(n.word);
+    if (n.word && !n.tool) {
+      const c = colorForConcept(n.word);
+      n.h = c.h; n.s = c.s; n.l = c.l; n.hue = c.h;
+    }
   }
   const chromeOn = document.body.dataset.chrome === '1';
   if (chromeOn && name) document.body.dataset.palette = name;
