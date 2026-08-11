@@ -639,6 +639,8 @@ canvas#stage {
   <span class="palette-picker__dot"           data-palette="milano" style="background:#a90e02" title="milano"></span>
   <span class="palette-picker__dot"           data-palette="neon"   style="background:#fffe15" title="neon"></span>
   <span id="chromeToggle" title="apply palette to interface chrome too" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">chrome</span>
+  <span class="mode-pill__divider"></span>
+  <span id="audioToggle" title="react to microphone / system audio — pulses neurons on beat" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">♪ mic</span>
 </div>
 
 <div class="palette-picker" id="palettePicker" style="display:none"></div>
@@ -1049,6 +1051,12 @@ function stepPhysics(dt) {
   for (const k of Object.keys(cam4.a)) cam4.a[k] += (cam4.t[k] - cam4.a[k]) * 0.06;
   cam4.dive += (cam4.tDive - cam4.dive) * 0.09;
 
+  // Audio-driven bass pulse — brief energy kick to all neurons on the
+  // beat.  Only when the audio toggle is on.
+  if (audioActive && audioBass > 0.55) {
+    const kick = (audioBass - 0.55) * 0.6;
+    for (const n of neurons) n.energy = Math.min(2.4, n.energy + kick);
+  }
   for (const n of neurons) {
     // gentle attractor toward the 4D origin
     n.vx += -n.x * 0.00006 * dt;
@@ -1243,11 +1251,10 @@ function draw() {
     ctx.fillStyle = `hsla(${n.h ?? n.hue}, ${s}%, ${l}%, ${(0.55 + n.energy * 0.25) * Math.min(1, depth)})`;
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
     if (animMode === 'live') {
-      // Halo shifts from BRIGHT (palette colour) at persistence=0 to
-      // DARK (bg colour) at persistence=1.  With high trails the halo
-      // actively DARKENS the ring around each neuron, so accumulated
-      // trail brightness is eaten instead of amplified.
-      const haloR = r * 4 * (0.4 + n.energy);
+      // Halo shifts BRIGHT→DARK with persistence.  Radius pulses with
+      // audio treble when audio-reactive mode is on.
+      const audioBoost = audioActive ? (1 + audioTreble * 0.8) : 1;
+      const haloR = r * 4 * (0.4 + n.energy) * audioBoost;
       const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
       const brightL = Math.min(90, l + 10);
       const mixedL = brightL * (1 - persistence) + 3 * persistence;
@@ -1313,6 +1320,7 @@ function draw() {
 let last = performance.now(), frames = 0, fpsT = 0, fps = 0;
 function loop(now) {
   const dt = Math.min(50, now - last); last = now;
+  sampleAudio();
   stepPhysics(dt);
   stepCaption(dt);
   draw();
@@ -2071,27 +2079,15 @@ document.getElementById('skillModal').addEventListener('click', e => {
 // --- Collected skills persistence (localStorage) -------------------------
 const COLLECTED_KEY = 'thought-visualizer:collected';
 function loadCollected() { try { return JSON.parse(localStorage.getItem(COLLECTED_KEY) || '[]'); } catch { return []; } }
-function saveCollected(items) { localStorage.setItem(COLLECTED_KEY, JSON.stringify(items)); renderTray(); }
+function saveCollected(items) { localStorage.setItem(COLLECTED_KEY, JSON.stringify(items)); }
 function collectSkill(card) {
   const items = loadCollected();
   if (!items.find(x => x.word === card.word)) items.unshift(card);
   saveCollected(items.slice(0, 50));
 }
-function renderTray() {
-  const items = loadCollected();
-  const tray = document.getElementById('skillTray');
-  const list = document.getElementById('skillTrayItems');
-  list.innerHTML = '';
-  for (const it of items) {
-    const div = document.createElement('div');
-    div.className = 'skill-tray__item';
-    div.innerHTML = `${it.skill || it.word}<small>${it.word}</small>`;
-    div.onclick = () => openContextCard(it.word);
-    list.appendChild(div);
-  }
-  tray.classList.toggle('has-items', items.length > 0);
-}
-renderTray();
+// renderTray removed with skill-tray DOM.  Legacy no-op keeps any
+// external callers safe.
+function renderTray() {}
 
 // --- Complexity monitor: pulse the poster button when scene grows heavy ----
 // The visualizer starts to freeze past ~450 neurons on typical laptop GPUs.
@@ -2747,6 +2743,67 @@ document.getElementById('chromeToggle').addEventListener('click', () => {
 });
 applyChrome(localStorage.getItem(CHROME_KEY) === '1');
 applyPalette(localStorage.getItem(PALETTE_KEY) || '');
+
+// ---- Audio reactivity ---------------------------------------------------
+// Grab microphone input, compute short-term energy each frame, publish
+// as `audioLevel` (0..1) + `audioBass`/`audioMid`/`audioTreble` bands.
+// Physics/render code can multiply on these to make the mandala pulse
+// with music.  Toggle in the mode-pill.
+let audioLevel = 0, audioBass = 0, audioMid = 0, audioTreble = 0;
+let audioCtx = null, audioAnalyser = null, audioData = null, audioStream = null;
+let audioActive = false;
+
+async function toggleAudio() {
+  const btn = document.getElementById('audioToggle');
+  if (audioActive) {
+    audioStream?.getTracks().forEach(t => t.stop());
+    audioCtx?.close();
+    audioStream = audioCtx = audioAnalyser = audioData = null;
+    audioLevel = audioBass = audioMid = audioTreble = 0;
+    audioActive = false;
+    btn.style.background = 'transparent';
+    btn.style.color = 'var(--text-dim)';
+    return;
+  }
+  try {
+    audioStream = await navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+    } });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(audioStream);
+    audioAnalyser = audioCtx.createAnalyser();
+    audioAnalyser.fftSize = 512;
+    audioAnalyser.smoothingTimeConstant = 0.7;
+    src.connect(audioAnalyser);
+    audioData = new Uint8Array(audioAnalyser.frequencyBinCount);
+    audioActive = true;
+    btn.style.background = 'var(--violet)';
+    btn.style.color = '#fff';
+  } catch (err) {
+    console.error('audio init failed:', err);
+    alert('Nie mogę dostać się do mikrofonu: ' + err.message);
+  }
+}
+document.getElementById('audioToggle').addEventListener('click', toggleAudio);
+
+function sampleAudio() {
+  if (!audioActive || !audioAnalyser) return;
+  audioAnalyser.getByteFrequencyData(audioData);
+  const N = audioData.length;
+  let sum = 0, bass = 0, mid = 0, treble = 0;
+  const bassEnd = Math.floor(N * 0.15);
+  const midEnd = Math.floor(N * 0.5);
+  for (let i = 0; i < N; i++) {
+    sum += audioData[i];
+    if (i < bassEnd) bass += audioData[i];
+    else if (i < midEnd) mid += audioData[i];
+    else treble += audioData[i];
+  }
+  audioLevel  = (sum / N) / 255;
+  audioBass   = (bass / bassEnd) / 255;
+  audioMid    = (mid / (midEnd - bassEnd)) / 255;
+  audioTreble = (treble / (N - midEnd)) / 255;
+}
 
 // autoboot: connect the auto-observer + do an immediate purge to catch
 // anything the session already ingested before the sanitize wiring landed.

@@ -17,6 +17,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
 const HIST_LIMIT = 200;
+const MAX_STR = 600;     // maks. dlugosc pojedynczego stringa w payloadzie
+const MAX_FRAME = 8192;  // twardy limit na cala ramke SSE
 
 const clients = new Set();
 const history = [];
@@ -27,9 +29,27 @@ function cors(res) {
   res.setHeader('access-control-allow-headers', 'content-type');
 }
 
-function broadcast(obs) {
+// Hooki PostToolUse przesylaja cale tool_input/tool_response, wiec Edit na duzym
+// pliku daje obserwacje ~120 KB. HIST_LIMIT liczy wpisy, nie bajty, przez co
+// /stream odtwarzal nowej karcie kilka MB naraz i blokowal jej main thread.
+function trim(v) {
+  if (typeof v === 'string') {
+    return v.length > MAX_STR ? `${v.slice(0, MAX_STR)}…[+${v.length - MAX_STR} zn.]` : v;
+  }
+  if (Array.isArray(v)) return v.map(trim);
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(Object.entries(v).map(([k, val]) => [k, trim(val)]));
+  }
+  return v;
+}
+
+function broadcast(raw) {
+  const obs = trim(raw);
   const evName = (obs.type || 'observation').replace(/[^a-z0-9_]/gi, '_');
-  const data = JSON.stringify(obs);
+  let data = JSON.stringify(obs);
+  if (data.length > MAX_FRAME) {
+    data = JSON.stringify({ type: obs.type, payload: { truncated: true, bytes: data.length } });
+  }
   const frame = `event: ${evName}\ndata: ${data}\n\n`;
   for (const res of [...clients]) {
     try { res.write(frame); } catch { clients.delete(res); }
