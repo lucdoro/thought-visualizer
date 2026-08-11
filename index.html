@@ -599,7 +599,14 @@ canvas#stage {
 <div class="thoughtlog" id="thoughtlog"></div>
 
 <div class="metro-view" id="metroView">
-  <div class="metro-view__title">memory metro <em>· linie = klastry konceptów · stacje w kolejności pierwszego wystąpienia</em></div>
+  <div class="metro-view__title">
+    memory metro <em>· linie = klastry · stacje wg czasu · wysokość = ciężkość lingwistyczna</em>
+    <span style="float:right; display:flex; gap:6px; align-items:center">
+      <button class="btn btn--ghost" id="metroFit" style="padding:3px 10px; font-size:9px">fit</button>
+      <button class="btn btn--ghost" id="metroZoomOut" style="padding:3px 8px; font-size:11px">−</button>
+      <button class="btn btn--ghost" id="metroZoomIn" style="padding:3px 8px; font-size:11px">+</button>
+    </span>
+  </div>
   <div class="metro-svg-wrap">
     <svg id="metroSvg" preserveAspectRatio="xMidYMid meet" viewBox="0 0 1200 700"></svg>
   </div>
@@ -609,6 +616,7 @@ canvas#stage {
   <input id="prompt" placeholder="daj mi problem do przemyślenia..." />
   <button class="btn" id="think">think</button>
   <button class="btn" id="poster">→ plakat</button>
+  <button class="btn btn--ghost" id="animBtn" title="autospin + particles + halos on/off">still</button>
   <button class="btn btn--ghost" id="purge" title="usuń hasła/tokeny z widoku">purge</button>
   <button class="btn btn--ghost" id="clear">clear</button>
 </div>
@@ -652,11 +660,22 @@ window.addEventListener('resize', resize); resize();
 const cam4 = {
   a:   { xy: 0, xz: 0, xw: 0, yz: 0, yw: 0, zw: 0 },     // current angles
   t:   { xy: 0, xz: 0, xw: 0, yz: 0, yw: 0, zw: 0 },     // targets (user-driven)
-  v:   { xy: 0.00006, xz: 0.00004, xw: 0.00009, yz: 0.00005, yw: 0.00007, zw: 0.00003 }, // autospin
+  v:   { xy: 0, xz: 0, xw: 0, yz: 0, yw: 0, zw: 0 },     // autospin — off by default
   distW: 900, distZ: 700,
-  dive: 0,     // camera position along z — positive = flying INTO the scene
-  tDive: 0,    // eased target (so wheel spins feel smooth, not jittery)
+  dive: 0,
+  tDive: 0,
 };
+// Quiet mode: no autospin, no particles, no halos, RAF throttled.
+// Toggle via the "still ↔ live" button in the control bar.
+let animMode = 'still';
+const SPIN_RATES = { xy: 0.00006, xz: 0.00004, xw: 0.00009, yz: 0.00005, yw: 0.00007, zw: 0.00003 };
+function setAnimMode(mode) {
+  animMode = mode;
+  const spin = mode === 'live';
+  for (const k of Object.keys(cam4.v)) cam4.v[k] = spin ? SPIN_RATES[k] : 0;
+  const btn = document.getElementById('animBtn');
+  if (btn) { btn.textContent = mode; btn.classList.toggle('is-active', spin); }
+}
 let drag = null;
 stage.addEventListener('mousedown', e => drag = {
   x: e.clientX, y: e.clientY,
@@ -823,11 +842,9 @@ function addThought(text, opts) {
       if (!syn) { syn = { a, b, strength: 0.02, targetStrength: 0.2, activity: 0.4 }; synapses.push(syn); }
       syn.targetStrength = Math.min(1, (syn.targetStrength || syn.strength) + 0.15);
       syn.activity = Math.min(1, syn.activity + 0.4);
-      // spawn token particles along the edge
-      particles.push({
-        a, b, t: 0, speed: 0.6 + Math.random() * 0.8,
-        hue: neurons[a].hue, life: 1,
-      });
+      if (animMode === 'live') {
+        particles.push({ a, b, t: 0, speed: 0.6 + Math.random() * 0.8, hue: neurons[a].hue, life: 1 });
+      }
     }
   }
 
@@ -1076,13 +1093,15 @@ function draw() {
     ctx.fillStyle = `hsla(${n.hue}, 85%, ${bright}%, ${(0.55 + n.energy * 0.25) * Math.min(1, depth)})`;
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
 
-    // glow halo, tighter than before (r*4 vs r*6) so ball edges stay clean
-    const haloR = r * 4 * (0.4 + n.energy);
-    const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
-    halo.addColorStop(0, `hsla(${n.hue}, 90%, 70%, ${0.35 * n.energy * depth})`);
-    halo.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = halo;
-    ctx.fillRect(p.x - haloR, p.y - haloR, haloR * 2, haloR * 2);
+    // glow halo (skipped in still mode — biggest per-neuron cost)
+    if (animMode === 'live') {
+      const haloR = r * 4 * (0.4 + n.energy);
+      const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
+      halo.addColorStop(0, `hsla(${n.hue}, 90%, 70%, ${0.35 * n.energy * depth})`);
+      halo.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = halo;
+      ctx.fillRect(p.x - haloR, p.y - haloR, haloR * 2, haloR * 2);
+    }
 
     // Labels: show for medium-energy or macro-close neurons; font scales
     // with depth so a single close-up neuron gets a giant readable label.
@@ -2174,6 +2193,9 @@ document.getElementById('purge').addEventListener('click', () => {
   const r = purgeSecrets();
   showCaption(`◈ wyczyszczono ${r.logEntries} wpisów logu, zostało ${r.neurons} neuronów`);
 });
+document.getElementById('animBtn').addEventListener('click', () => {
+  setAnimMode(animMode === 'still' ? 'live' : 'still');
+});
 
 // ==========================================================================
 //   METRO MAP paradigm
@@ -2196,56 +2218,90 @@ function computeMetroLayout() {
   }
   if (nodes.length < 3) return [];
 
-  // Union-Find over strong synapses to cluster concepts.
+  // Union-Find over synapses.  Threshold on effective strength (whichever
+  // is bigger between current and target) so freshly-formed synapses
+  // still get grouped even before easing settles them.
   const parent = nodes.map((_, i) => i);
   const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
   const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
   for (const s of synapses) {
-    if (s.strength < 0.18) continue;
+    const eff = Math.max(s.strength, s.targetStrength || 0);
+    if (eff < 0.04) continue;
     const ai = nodeAt.get(s.a), bi = nodeAt.get(s.b);
     if (ai == null || bi == null) continue;
     union(ai, bi);
   }
-  // Group by root, drop singletons.
+  // Group by root.  Keep singletons if there are very few concepts overall
+  // — better to show something than an empty screen.
   const groups = new Map();
   nodes.forEach((n, i) => {
     const r = find(i);
     if (!groups.has(r)) groups.set(r, []);
     groups.get(r).push(n);
   });
+  const minSize = nodes.length < 8 ? 1 : 2;
   const lines = [...groups.values()]
-    .filter(g => g.length >= 2)
+    .filter(g => g.length >= minSize)
     .sort((a, b) => b.length - a.length)
-    .slice(0, 10);
-  // Sort each line's stations by first-mention time.
+    .slice(0, 12);
   for (const line of lines) line.sort((a, b) => a.born - b.born);
   return lines;
 }
+
+// Metro navigation state — viewBox is auto-sized to content, zoom + pan
+// via wheel and buttons.  Fit-to-view button restores full visibility.
+let metroZoom = 1;
+let metroPan = { x: 0, y: 0 };
 
 function renderMetroSVG() {
   const svg = document.getElementById('metroSvg');
   if (!svg) return;
   const lines = computeMetroLayout();
-  const W = 1200, H = 700;
-  const marginL = 160, marginR = 40, marginT = 50, marginB = 70;
-  const availW = W - marginL - marginR;
-  const availH = H - marginT - marginB;
+  const marginL = 180, marginR = 60, marginT = 60, marginB = 90;
+  // "Wektor ciężkości lingwistycznej" — sort lines by total energy (sum of
+  // station energies).  Heaviest concepts sit on the top layer, lightest
+  // at the bottom, so vertical position encodes semantic weight.
+  lines.forEach(line => {
+    line.weight = line.reduce((sum, s) => sum + (s.energy || 1), 0);
+  });
+  lines.sort((a, b) => b.weight - a.weight);
+  const laneH = 90;
+  const maxStations = Math.max(2, ...lines.map(l => l.length));
+  const stationSpacing = 100;
+  const contentW = Math.max(1200, marginL + marginR + (maxStations - 1) * stationSpacing);
+  const contentH = Math.max(700, marginT + marginB + lines.length * laneH);
+  const availW = contentW - marginL - marginR;
+  const W = contentW, H = contentH;
+
+  // Fit-to-view unless user has zoomed/panned manually.
+  svg.setAttribute('viewBox', `${-metroPan.x} ${-metroPan.y} ${W / metroZoom} ${H / metroZoom}`);
 
   const parts = [`<defs><style>
-    .lbl { font-family: 'Manrope', 'Inter', sans-serif; font-size: 11px; font-weight: 500; fill: #e9e2ff; }
-    .lnm { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; }
-    .foot { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.15em; fill: #9a8fbe; }
-    .empty { font-family: 'Fraunces', serif; font-style: italic; font-size: 18px; fill: #6b5b8a; }
+    .lbl { font-family: 'Manrope', 'Inter', sans-serif; font-size: 12px; font-weight: 500; fill: #e9e2ff; }
+    .lnm { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; }
+    .weight { font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.15em; fill: #6b5b8a; }
+    .foot { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.15em; fill: #9a8fbe; }
+    .empty { font-family: 'Fraunces', serif; font-style: italic; font-size: 20px; fill: #6b5b8a; }
+    .layer-band { fill: rgba(123,77,255,0.02); }
+    .layer-band-alt { fill: rgba(123,77,255,0.04); }
   </style></defs>`];
 
   if (lines.length === 0) {
-    parts.push(`<text x="${W/2}" y="${H/2}" text-anchor="middle" class="empty">czekam na klastry konceptów…</text>`);
-    parts.push(`<text x="${W/2}" y="${H/2 + 32}" text-anchor="middle" class="foot">potrzeba ≥2 połączonych konceptów per linia · min. synaps 0.18</text>`);
+    const total = neurons.filter(n => n.word && !n.tool && n.word !== 'user').length;
+    parts.push(`<text x="${W/2}" y="${H/2 - 20}" text-anchor="middle" class="empty">brak połączonych konceptów</text>`);
+    parts.push(`<text x="${W/2}" y="${H/2 + 20}" text-anchor="middle" class="foot">masz ${total} konceptów, ale żaden nie ma jeszcze synapsy o sile ≥ 0.04</text>`);
+    parts.push(`<text x="${W/2}" y="${H/2 + 46}" text-anchor="middle" class="foot">napisz kilka pytań / poczekaj na koincydencje w strumieniu</text>`);
     svg.innerHTML = parts.join('');
     return;
   }
 
-  const laneH = availH / lines.length;
+  // Background layer bands so each depth level is visually distinct.
+  lines.forEach((_, li) => {
+    const y = marginT + laneH * li;
+    parts.push(`<rect x="0" y="${y}" width="${W}" height="${laneH}" class="${li % 2 ? 'layer-band-alt' : 'layer-band'}"/>`);
+  });
+
+  const maxWeight = Math.max(...lines.map(l => l.weight));
 
   lines.forEach((line, li) => {
     const y = marginT + laneH * (li + 0.5);
@@ -2259,15 +2315,17 @@ function renderMetroSVG() {
     const range = Math.max(1, maxT - minT);
     const posX = line.map(s => marginL + ((s.born - minT) / range) * availW);
     // Nudge to avoid overlaps.
-    for (let i = 1; i < posX.length; i++) if (posX[i] - posX[i-1] < 60) posX[i] = posX[i-1] + 60;
+    for (let i = 1; i < posX.length; i++) if (posX[i] - posX[i-1] < stationSpacing * 0.8) posX[i] = posX[i-1] + stationSpacing * 0.8;
 
     // Line stroke — outer glow + inner line.
     parts.push(`<path d="M ${posX[0]} ${y} L ${posX[posX.length-1]} ${y}" stroke="${softColor}" stroke-width="10" stroke-linecap="round" fill="none"/>`);
     parts.push(`<path d="M ${posX[0]} ${y} L ${posX[posX.length-1]} ${y}" stroke="${color}" stroke-width="4" stroke-linecap="round" fill="none"/>`);
 
-    // Line name at the left margin.
+    // Line name at the left margin + weight indicator (higher = heavier).
     const size = line.length;
-    parts.push(`<text x="${marginL - 14}" y="${y + 4}" text-anchor="end" class="lnm" fill="${color}">${size} · ${escapeSvg(line[0].word)}</text>`);
+    const weightPct = Math.round((line.weight / maxWeight) * 100);
+    parts.push(`<text x="${marginL - 14}" y="${y - 2}" text-anchor="end" class="lnm" fill="${color}">${size} · ${escapeSvg(line[0].word)}</text>`);
+    parts.push(`<text x="${marginL - 14}" y="${y + 14}" text-anchor="end" class="weight">weight ${weightPct}%</text>`);
 
     // Stations.
     line.forEach((s, i) => {
@@ -2290,6 +2348,29 @@ function renderMetroSVG() {
 }
 
 function escapeSvg(s) { return String(s).replace(/[&<>"]/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m])); }
+
+// Zoom controls for the metro view.
+function metroFit() { metroZoom = 1; metroPan = { x: 0, y: 0 }; renderMetroSVG(); }
+function metroZoomBy(factor) { metroZoom = Math.max(0.15, Math.min(6, metroZoom * factor)); renderMetroSVG(); }
+document.getElementById('metroFit')?.addEventListener('click', metroFit);
+document.getElementById('metroZoomIn')?.addEventListener('click', () => metroZoomBy(1.3));
+document.getElementById('metroZoomOut')?.addEventListener('click', () => metroZoomBy(1 / 1.3));
+document.getElementById('metroSvg')?.addEventListener('wheel', e => {
+  e.preventDefault();
+  metroZoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12);
+}, { passive: false });
+// Drag-to-pan on the metro SVG.
+let metroDrag = null;
+document.getElementById('metroSvg')?.addEventListener('mousedown', e => {
+  metroDrag = { x: e.clientX, y: e.clientY, panX: metroPan.x, panY: metroPan.y };
+});
+window.addEventListener('mousemove', e => {
+  if (!metroDrag) return;
+  metroPan.x = metroDrag.panX + (e.clientX - metroDrag.x) / metroZoom;
+  metroPan.y = metroDrag.panY + (e.clientY - metroDrag.y) / metroZoom;
+  if (currentMode === 'metro') renderMetroSVG();
+});
+window.addEventListener('mouseup', () => { metroDrag = null; });
 
 // Re-render whenever metro mode is on.  Cheap even at 500+ neurons.
 setInterval(() => {
