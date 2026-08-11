@@ -909,30 +909,35 @@ function startObserver() {
       const input = obs.payload?.tool_input || {};
       const hue = TOOL_HUE[tool] ?? 280;
       const label = tool + summarizeToolInput(tool, input);
-      const angle = Math.random() * Math.PI * 2;
-      const rad = 60 + Math.random() * Math.min(W, H) * 0.35;
+      const p4 = randomOnHypersphere(140 + Math.random() * 120);
       const n = {
-        word: label, x: Math.cos(angle) * rad, y: Math.sin(angle) * rad,
-        vx: 0, vy: 0, r: 5, energy: 1.8, born: performance.now(),
+        word: label, x: p4.x, y: p4.y, z: p4.z, w: p4.w,
+        vx: 0, vy: 0, vz: 0, vw: 0,
+        r: 5, energy: 1.8, born: performance.now(),
         hue, tool: true,
       };
       neurons.push(n);
+      const toolIdx = neurons.length - 1;
       // link to last user prompt neuron if any
       const userIdx = neurons.findIndex(x => x.word === 'user' && x.hue === 45);
-      if (userIdx >= 0) synapses.push({ a: userIdx, b: neurons.length - 1, strength: 0.6, activity: 1 });
+      if (userIdx >= 0) synapses.push({ a: userIdx, b: toolIdx, strength: 0.6, activity: 1 });
       spawnGlyph(n);
       showCaption('◆ ' + label);
+      // Feed the *content* of the input into the neural fabric — the words
+      // Claude is about to work with become their own concept-neurons.
+      const inputText = extractInputText(tool, input);
+      if (inputText) addThought(inputText.slice(0, 800));
     });
     listen('post_tool', obs => {
       const tool = obs.payload?.tool_name || 'tool';
       // pulse the most recent tool neuron of this kind
+      let toolIdx = -1;
       for (let i = neurons.length - 1; i >= 0; i--) {
         if (neurons[i].tool && neurons[i].word?.startsWith(tool)) {
+          toolIdx = i;
           neurons[i].energy = Math.min(2.4, neurons[i].energy + 0.8);
           neurons[i].r = Math.min(11, neurons[i].r + 1.2);
-          // radiating particles
           for (let k = 0; k < 5; k++) {
-            const angle = (k / 5) * Math.PI * 2;
             const targetIdx = Math.floor(Math.random() * neurons.length);
             if (targetIdx !== i) {
               particles.push({ a: i, b: targetIdx, t: 0, speed: 1.2, hue: neurons[i].hue, life: 1 });
@@ -940,6 +945,14 @@ function startObserver() {
           }
           break;
         }
+      }
+      // Extract the *analyzed content* — text Claude just consumed —
+      // and let it grow into the neural mandala.
+      const responseText = extractResponseText(obs.payload?.tool_response);
+      if (responseText) {
+        const snippet = responseText.slice(0, 1200);
+        showCaption('▸ ' + snippet.slice(0, 160).replace(/\s+/g, ' '));
+        addThought(snippet);
       }
     });
     listen('assistant_thought', obs => addThought(obs.text || obs.payload?.text || ''));
@@ -961,6 +974,49 @@ function startObserver() {
   }
 }
 function stopObserver() { if (obsES) { obsES.close(); obsES = null; } }
+
+// Pull the meaningful text out of a tool's INPUT — the argument surface
+// Claude just committed to. Different tools carry text in different fields.
+function extractInputText(tool, input) {
+  if (!input || typeof input !== 'object') return '';
+  const bits = [];
+  if (input.command)     bits.push(String(input.command));
+  if (input.pattern)     bits.push(String(input.pattern));
+  if (input.query)       bits.push(String(input.query));
+  if (input.url)         bits.push(String(input.url));
+  if (input.prompt)      bits.push(String(input.prompt));
+  if (input.description) bits.push(String(input.description));
+  if (input.old_string)  bits.push(String(input.old_string).slice(0, 200));
+  if (input.new_string)  bits.push(String(input.new_string).slice(0, 200));
+  if (input.content)     bits.push(String(input.content).slice(0, 400));
+  if (input.file_path) {
+    // Turn a path into words: strip extension, split by slashes/dashes/dots
+    bits.push(String(input.file_path).split('/').slice(-3).join(' ').replace(/[._-]/g, ' '));
+  }
+  return bits.join(' \n ').trim();
+}
+
+// Pull the meaningful text out of a tool's RESPONSE — the content Claude
+// just consumed and (in effect) analyzed.
+function extractResponseText(resp) {
+  if (resp == null) return '';
+  if (typeof resp === 'string') return resp;
+  if (Array.isArray(resp)) {
+    // Claude content-block array: [{type:'text', text:'...'}, ...]
+    return resp.map(x => x?.text || x?.content || (typeof x === 'string' ? x : '')).join(' ');
+  }
+  if (typeof resp === 'object') {
+    if (resp.text) return String(resp.text);
+    if (resp.content) return extractResponseText(resp.content);
+    if (resp.stdout != null || resp.stderr != null) {
+      return [resp.stdout, resp.stderr].filter(Boolean).join(' ');
+    }
+    if (resp.output) return String(resp.output);
+    if (resp.message) return String(resp.message);
+    try { return JSON.stringify(resp).slice(0, 1200); } catch { return ''; }
+  }
+  return String(resp);
+}
 
 function summarizeToolInput(tool, input) {
   try {
