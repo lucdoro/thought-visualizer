@@ -20,38 +20,13 @@
   --text: #e9e2ff;
   --text-dim: #9a8fbe;
 }
-/* Palettes lifted from lucdoro.design (data-palette=combo01-05, dark theme).
-   Toggle via the picker in top-right; choice persists in localStorage. */
-body[data-palette="ocean"] {   /* combo01 · #28469E + #CAE8E8 · WA #FF7B85 */
-  --bg-0: #14224d; --bg-1: #28469e;
-  --violet: #4b6ac0; --violet-hi: #cae8e8; --violet-lo: #1e3680;
-  --text: #cae8e8; --text-dim: #a0c4c4; --dim: #6a8a8a;
-  --gold: #ff7b85; --mint: #cae8e8;
-}
-body[data-palette="sunset"] {  /* combo02 · #3E0856 + #FAAE62 · WA #00E5A0 */
-  --bg-0: #1f042b; --bg-1: #3e0856;
-  --violet: #7a2896; --violet-hi: #faae62; --violet-lo: #4e1866;
-  --text: #faae62; --text-dim: #e09e52; --dim: #8e6e42;
-  --gold: #ffd28c; --mint: #00e5a0;
-}
-body[data-palette="sky"] {     /* combo03 · #04344C + #B0EDF9 · WA #FFB74D */
-  --bg-0: #02202f; --bg-1: #04344c;
-  --violet: #2a5a72; --violet-hi: #b0edf9; --violet-lo: #14546c;
-  --text: #b0edf9; --text-dim: #88cde0; --dim: #587888;
-  --gold: #ffb74d; --mint: #b0edf9;
-}
-body[data-palette="milano"] {  /* combo04 · #A90E02 + #FFFBD4 · WA #00E5C4 */
-  --bg-0: #6a0801; --bg-1: #a90e02;
-  --violet: #c93828; --violet-hi: #fffbd4; --violet-lo: #8a0a02;
-  --text: #fffbd4; --text-dim: #e0c8a0; --dim: #a08858;
-  --gold: #fffbd4; --mint: #00e5c4;
-}
-body[data-palette="neon"] {    /* combo05 · #0C1E29 + #FFFE15 · WA #FF3A9E */
-  --bg-0: #050d13; --bg-1: #0c1e29;
-  --violet: #3e5e69; --violet-hi: #fffe15; --violet-lo: #182e39;
-  --text: #fffe15; --text-dim: #c0be55; --dim: #6a8090;
-  --gold: #ff3a9e; --mint: #fffe15;
-}
+/* Palette picker (from lucdoro.design).  Default: only NODE hues change.
+   Toggle 'chrome' in the picker to also apply theme to interface. */
+body[data-palette="ocean"][data-chrome="1"]  { --bg-0:#14224d; --bg-1:#28469e; --violet:#4b6ac0; --violet-hi:#cae8e8; --violet-lo:#1e3680; --text:#cae8e8; --text-dim:#a0c4c4; --dim:#6a8a8a; --gold:#ff7b85; --mint:#cae8e8; }
+body[data-palette="sunset"][data-chrome="1"] { --bg-0:#1f042b; --bg-1:#3e0856; --violet:#7a2896; --violet-hi:#faae62; --violet-lo:#4e1866; --text:#faae62; --text-dim:#e09e52; --dim:#8e6e42; --gold:#ffd28c; --mint:#00e5a0; }
+body[data-palette="sky"][data-chrome="1"]    { --bg-0:#02202f; --bg-1:#04344c; --violet:#2a5a72; --violet-hi:#b0edf9; --violet-lo:#14546c; --text:#b0edf9; --text-dim:#88cde0; --dim:#587888; --gold:#ffb74d; --mint:#b0edf9; }
+body[data-palette="milano"][data-chrome="1"] { --bg-0:#6a0801; --bg-1:#a90e02; --violet:#c93828; --violet-hi:#fffbd4; --violet-lo:#8a0a02; --text:#fffbd4; --text-dim:#e0c8a0; --dim:#a08858; --gold:#fffbd4; --mint:#00e5c4; }
+body[data-palette="neon"][data-chrome="1"]   { --bg-0:#050d13; --bg-1:#0c1e29; --violet:#3e5e69; --violet-hi:#fffe15; --violet-lo:#182e39; --text:#fffe15; --text-dim:#c0be55; --dim:#6a8090; --gold:#ff3a9e; --mint:#fffe15; }
 * { box-sizing: border-box; }
 html, body {
   margin: 0; padding: 0; height: 100%; width: 100%;
@@ -627,13 +602,14 @@ canvas#stage {
   <button class="btn" data-mode="sim">demo</button>
 </div>
 
-<div class="palette-picker" id="palettePicker" title="paleta z lucdoro.design">
+<div class="palette-picker" id="palettePicker" title="paleta z lucdoro.design · zmienia hue węzłów">
   <span class="palette-picker__dot is-active" data-palette=""       style="background:#7b4dff" title="default (violet)"></span>
   <span class="palette-picker__dot"           data-palette="ocean"  style="background:#28469e" title="ocean"></span>
   <span class="palette-picker__dot"           data-palette="sunset" style="background:#faae62" title="sunset"></span>
   <span class="palette-picker__dot"           data-palette="sky"    style="background:#b0edf9" title="sky"></span>
   <span class="palette-picker__dot"           data-palette="milano" style="background:#a90e02" title="milano"></span>
   <span class="palette-picker__dot"           data-palette="neon"   style="background:#fffe15" title="neon"></span>
+  <span id="chromeToggle" title="apply palette to interface chrome too" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent">chrome</span>
 </div>
 
 <div class="hud" style="top:70px;left:50%;transform:translateX(-50%);text-align:center;font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:var(--text-dim);text-transform:none;letter-spacing:0.02em;pointer-events:none;">
@@ -830,11 +806,23 @@ let totalTokens = 0;
 const STOP = new Set(('the a an and or but if then when so is are was were be been being do does did have has had i you we they it this that these those of to in on for with as by from at into onto not no yes about there here what which who how why where can could should would may might must will shall just very really quite also more most some any all each every ' +
   'to jest są była był byli być robić robił mieć miał na w z do od dla przez o po nad pod przed za obok jak co gdzie kto który która które jaki jaka jakie tak nie tylko bardzo już oraz albo lub ale bo bo więc czyli może musi powinien będzie').split(/\s+/));
 
+// Node hue palettes derived from lucdoro.design colours.  Each palette is
+// an array of hues; the concept's word-hash picks one deterministically.
+const NODE_PALETTES = {
+  '':       [220, 240, 260, 275, 285, 295, 305, 320],           // default violet range
+  ocean:    [200, 210, 220, 200, 355, 5, 15, 190],              // navy + coral
+  sunset:   [285, 295, 25, 30, 40, 155, 160, 305],              // aubergine + apricot + mint
+  sky:      [190, 200, 210, 195, 40, 45, 200, 205],             // sky-blue + amber
+  milano:   [355, 0, 5, 10, 175, 180, 45, 55],                  // crimson + teal + cream
+  neon:     [55, 60, 65, 325, 330, 340, 210, 55],               // lemon + magenta + slate
+};
 function hueForConcept(word) {
+  const pal = NODE_PALETTES[currentPalette || ''] || NODE_PALETTES[''];
   let h = 0;
   for (let i = 0; i < word.length; i++) h = (h * 31 + word.charCodeAt(i)) >>> 0;
-  return 260 + (h % 80) - 40; // stay in violet/blue/pink range
+  return pal[h % pal.length];
 }
+let currentPalette = '';
 
 // Uniform random point on the 3-sphere (surface of a 4-ball) of radius r.
 // Uses two independent 2D normals then normalizes.
@@ -2522,21 +2510,45 @@ setInterval(() => {
 
 // chart mode removed — memory spores replaced it
 
-// Palette picker — persists in localStorage, applies via body data-palette.
+// Palette picker — nodes always repaint; chrome only if the 'chrome'
+// toggle is on (respects the 'kolory miały dotyczyć węzłów' instruction
+// while keeping the full-theme look one click away).
 const PALETTE_KEY = 'thought-visualizer:palette';
+const CHROME_KEY  = 'thought-visualizer:chrome';
 function applyPalette(name) {
-  if (name) document.body.dataset.palette = name;
-  else document.body.removeAttribute('data-palette');
+  currentPalette = name || '';
+  // Reassign hue on all existing neurons so palette change is instant.
+  for (const n of neurons) {
+    if (n.word && !n.tool) n.hue = hueForConcept(n.word);
+  }
+  const chromeOn = document.body.dataset.chrome === '1';
+  if (chromeOn && name) document.body.dataset.palette = name;
+  else if (chromeOn) document.body.removeAttribute('data-palette');
+  else {
+    // Set attribute so metro/spores can read the palette hues, but chrome
+    // vars only kick in when data-chrome is 1 (selector: [data-palette][data-chrome="1"]).
+    if (name) document.body.dataset.palette = name;
+    else document.body.removeAttribute('data-palette');
+  }
   document.querySelectorAll('.palette-picker__dot').forEach(d => {
-    d.classList.toggle('is-active', (d.dataset.palette || '') === (name || ''));
+    d.classList.toggle('is-active', (d.dataset.palette || '') === currentPalette);
   });
-  localStorage.setItem(PALETTE_KEY, name || '');
-  // Live-render metro if visible so hue variables recompute in SVG
+  localStorage.setItem(PALETTE_KEY, currentPalette);
   if (currentMode === 'metro') renderMetroSVG();
+}
+function applyChrome(on) {
+  document.body.dataset.chrome = on ? '1' : '0';
+  document.getElementById('chromeToggle').style.background = on ? 'var(--violet)' : 'transparent';
+  document.getElementById('chromeToggle').style.color = on ? '#fff' : 'var(--text-dim)';
+  localStorage.setItem(CHROME_KEY, on ? '1' : '0');
 }
 document.querySelectorAll('.palette-picker__dot').forEach(dot => {
   dot.addEventListener('click', () => applyPalette(dot.dataset.palette || ''));
 });
+document.getElementById('chromeToggle').addEventListener('click', () => {
+  applyChrome(document.body.dataset.chrome !== '1');
+});
+applyChrome(localStorage.getItem(CHROME_KEY) === '1');
 applyPalette(localStorage.getItem(PALETTE_KEY) || '');
 
 // autoboot: connect the auto-observer + do an immediate purge to catch
