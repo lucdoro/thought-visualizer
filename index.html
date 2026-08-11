@@ -645,8 +645,8 @@ canvas#stage {
   <span id="chromeToggle" title="apply palette to interface chrome too" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">chrome</span>
   <span id="labelsToggle" title="pokaż/ukryj podpisy węzłów" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">labels</span>
   <span class="mode-pill__divider"></span>
-  <span id="audioToggle" title="react to system audio — Aggregate/Composite device w Audio MIDI Setup" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">♪ off</span>
-  <select id="audioDevice" class="session-select" style="display:none;margin-left:4px;max-width:180px" title="urządzenie audio"></select>
+  <span id="audioToggle" title="react to system/tab audio via screen-share (zaznacz Share audio); fallback: input devices" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">♪ off</span>
+  <select id="audioDevice" class="session-select" style="display:none;margin-left:4px;max-width:200px" title="źródło audio (loopback / aggregate)"></select>
 </div>
 
 <div class="palette-picker" id="palettePicker" style="display:none"></div>
@@ -703,8 +703,10 @@ canvas#stage {
 .persist-slider__val { min-width: 30px; color: var(--violet-hi); }
 .persist-slider input[type="range"] {
   -webkit-appearance: none; appearance: none;
-  width: 84px; height: 3px;
-  background: linear-gradient(90deg, rgba(123,77,255,0.5), rgba(123,77,255,0.15));
+  width: 100px; height: 3px;
+  /* gradient intensifies to the right — matches value direction (left=0%,
+     right=100%) so visual and functional mapping agree */
+  background: linear-gradient(90deg, rgba(123,77,255,0.12), rgba(181,140,255,0.7));
   border-radius: 2px;
   outline: none;
 }
@@ -1446,7 +1448,7 @@ const OBS_SERVER = 'http://localhost:4173';
 // never mix.  'all' merges everything (legacy behaviour).
 const knownSessions = new Set();
 let currentIngestSession = 'default';
-let activeSession = 'all';
+let activeSession = null;  // set when first session is noted
 
 function sessionIdFromObs(obs) {
   const p = obs.payload?.transcript_path || obs.payload?.session_id || '';
@@ -1457,24 +1459,27 @@ function sessionIdFromObs(obs) {
 function noteSession(sid) {
   if (knownSessions.has(sid)) return;
   knownSessions.add(sid);
-  renderSessionPicker();
+  if (!activeSession) setActiveSession(sid); else renderSessionPicker();
 }
 function setActiveSession(sid) {
   activeSession = sid;
   renderSessionPicker();
-  // Hide/show log entries for this session
   document.querySelectorAll('.stream-log__entry').forEach(el => {
-    el.style.display = (sid !== 'all' && el.dataset.session !== sid) ? 'none' : '';
+    el.style.display = el.dataset.session === sid ? '' : 'none';
   });
 }
 function renderSessionPicker() {
   const el = document.getElementById('sessionPicker');
   if (!el) return;
-  const sessions = ['all', ...knownSessions];
+  // 'all' merged view was crashing the tab (too many neurons + O(N²) physics
+  // when parallel sessions accumulate).  Dropped — picker always shows exactly
+  // one session.  Default = first known.
+  if (activeSession === 'all' && knownSessions.size) activeSession = [...knownSessions][0];
+  const sessions = [...knownSessions];
+  if (sessions.length === 0) { el.innerHTML = ''; return; }
   const opts = sessions.map(s => {
-    const label = s === 'all' ? `● all (${knownSessions.size})` : `◐ ${s}`;
     const sel = s === activeSession ? 'selected' : '';
-    return `<option value="${s}" ${sel}>${label}</option>`;
+    return `<option value="${s}" ${sel}>◐ ${s}</option>`;
   }).join('');
   el.innerHTML = `<select id="sessionSelect" class="session-select" title="wybierz wątek">${opts}</select>`;
   el.querySelector('#sessionSelect').addEventListener('change', e => setActiveSession(e.target.value));
@@ -2864,8 +2869,35 @@ let audioActive = false;
 
 const AUDIO_DEVICE_KEY = 'thought-visualizer:audioDevice';
 
+async function initAnalyser(stream) {
+  audioStream = stream;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = audioCtx.createMediaStreamSource(audioStream);
+  audioAnalyser = audioCtx.createAnalyser();
+  audioAnalyser.fftSize = 512;
+  audioAnalyser.smoothingTimeConstant = 0.7;
+  src.connect(audioAnalyser);
+  audioData = new Uint8Array(audioAnalyser.frequencyBinCount);
+  audioActive = true;
+  const btn = document.getElementById('audioToggle');
+  btn.textContent = '♪ live';
+  btn.style.background = 'var(--violet)';
+  btn.style.color = '#fff';
+}
+
+async function stopAudio() {
+  const btn = document.getElementById('audioToggle');
+  audioStream?.getTracks().forEach(t => t.stop());
+  try { await audioCtx?.close(); } catch {}
+  audioStream = audioCtx = audioAnalyser = audioData = null;
+  audioLevel = audioBass = audioMid = audioTreble = 0;
+  audioActive = false;
+  btn.textContent = '♪ off';
+  btn.style.background = 'transparent';
+  btn.style.color = 'var(--text-dim)';
+}
+
 async function refreshAudioDevices() {
-  // Labels require prior permission — trigger once quietly.
   try {
     const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
     probe.getTracks().forEach(t => t.stop());
@@ -2883,49 +2915,51 @@ async function refreshAudioDevices() {
 }
 
 async function startAudioFromDevice(deviceId) {
-  const btn = document.getElementById('audioToggle');
   await stopAudio();
   try {
-    audioStream = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
         echoCancellation: false, noiseSuppression: false, autoGainControl: false,
       },
     });
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = audioCtx.createMediaStreamSource(audioStream);
-    audioAnalyser = audioCtx.createAnalyser();
-    audioAnalyser.fftSize = 512;
-    audioAnalyser.smoothingTimeConstant = 0.7;
-    src.connect(audioAnalyser);
-    audioData = new Uint8Array(audioAnalyser.frequencyBinCount);
-    audioActive = true;
-    btn.textContent = '♪ live';
-    btn.style.background = 'var(--violet)';
-    btn.style.color = '#fff';
+    await initAnalyser(stream);
     if (deviceId) localStorage.setItem(AUDIO_DEVICE_KEY, deviceId);
-  } catch (err) {
-    console.error('audio init failed:', err);
-    alert('Nie mogę czytać z tego urządzenia: ' + err.message);
-  }
-}
-
-async function stopAudio() {
-  const btn = document.getElementById('audioToggle');
-  audioStream?.getTracks().forEach(t => t.stop());
-  try { await audioCtx?.close(); } catch {}
-  audioStream = audioCtx = audioAnalyser = audioData = null;
-  audioLevel = audioBass = audioMid = audioTreble = 0;
-  audioActive = false;
-  btn.textContent = '♪ off';
-  btn.style.background = 'transparent';
-  btn.style.color = 'var(--text-dim)';
+  } catch (err) { console.error('audio init failed:', err); alert('Nie mogę czytać z tego urządzenia: ' + err.message); }
 }
 
 async function toggleAudio() {
-  if (audioActive) { await stopAudio(); document.getElementById('audioDevice').style.display = 'none'; return; }
+  if (audioActive) {
+    await stopAudio();
+    document.getElementById('audioDevice').style.display = 'none';
+    return;
+  }
+  // PRIMARY: system/tab audio via screen-share dialog (music player,
+  // browser tab audio, whole-screen audio if the OS/driver allows).
+  // The user picks a source and MUST check 'Share audio' in the picker.
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,   // required by spec even though we only want audio
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      systemAudio: 'include',  // Chrome-specific hint
+    });
+    stream.getVideoTracks().forEach(t => t.stop());
+    if (stream.getAudioTracks().length === 0) {
+      stream.getTracks().forEach(t => t.stop());
+      alert('Wybrane źródło nie ma audio.\n\nPrzy oknie "Share your screen" zaznacz checkbox "Share audio" na dole.');
+      return;
+    }
+    await initAnalyser(stream);
+    document.getElementById('audioDevice').style.display = 'none';
+    return;
+  } catch (err) {
+    // User cancelled screen-share OR browser doesn't support it → fallback
+    console.log('display-media audio unavailable, falling back to device list:', err.message);
+  }
+  // FALLBACK: enumerate input devices (BlackHole / Aggregate for those
+  // who set up a loopback driver).
   const inputs = await refreshAudioDevices();
-  if (!inputs.length) { alert('Brak dostępnych urządzeń audio input'); return; }
+  if (!inputs.length) { alert('Brak dostępnych źródeł audio'); return; }
   const saved = localStorage.getItem(AUDIO_DEVICE_KEY) || '';
   const pick = inputs.find(d => d.deviceId === saved)?.deviceId || inputs[0].deviceId;
   await startAudioFromDevice(pick);
