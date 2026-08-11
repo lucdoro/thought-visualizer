@@ -318,6 +318,22 @@ canvas#stage {
 .mode-pill .btn {
   padding: 5px 12px; font-size: 10px; border: 0;
 }
+.mode-pill .palette-picker__dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.15);
+  cursor: pointer;
+  transition: transform .12s;
+  margin: 0 2px;
+}
+.mode-pill .palette-picker__dot:hover { transform: scale(1.2); }
+.mode-pill .palette-picker__dot.is-active {
+  box-shadow: 0 0 0 2px var(--violet-hi), 0 0 12px rgba(255,255,255,0.4);
+  transform: scale(1.15);
+}
+.mode-pill__divider {
+  width: 1px; height: 16px; background: rgba(255,255,255,0.15);
+  margin: 0 6px;
+}
 
 /* --- Palette picker (from lucdoro.design) ------------------------------ */
 .palette-picker {
@@ -597,19 +613,19 @@ canvas#stage {
 </div>
 
 <div class="mode-pill">
-  <button class="btn is-active" data-mode="observe">graph</button>
-  <button class="btn" data-mode="sim">demo</button>
-</div>
-
-<div class="palette-picker" id="palettePicker" title="paleta z lucdoro.design · zmienia hue węzłów">
+  <button class="btn is-active" data-mode="observe" title="obserwacja bieżącej sesji Claude Code — hooki strumieniują twoje/moje działania">graph</button>
+  <button class="btn" data-mode="sim" title="demo/showreel — pre-scriptowane fragmenty do pokazu (używane głównie na GitHub Pages gdzie nie ma lokalnej sesji)">demo</button>
+  <span class="mode-pill__divider"></span>
   <span class="palette-picker__dot is-active" data-palette=""       style="background:#7b4dff" title="default (violet)"></span>
   <span class="palette-picker__dot"           data-palette="ocean"  style="background:#28469e" title="ocean"></span>
   <span class="palette-picker__dot"           data-palette="sunset" style="background:#faae62" title="sunset"></span>
   <span class="palette-picker__dot"           data-palette="sky"    style="background:#b0edf9" title="sky"></span>
   <span class="palette-picker__dot"           data-palette="milano" style="background:#a90e02" title="milano"></span>
   <span class="palette-picker__dot"           data-palette="neon"   style="background:#fffe15" title="neon"></span>
-  <span id="chromeToggle" title="apply palette to interface chrome too" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent">chrome</span>
+  <span id="chromeToggle" title="apply palette to interface chrome too" style="width:auto;height:14px;padding:0 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.15em;color:var(--text-dim);display:inline-flex;align-items:center;background:transparent;margin-left:4px">chrome</span>
 </div>
+
+<div class="palette-picker" id="palettePicker" style="display:none"></div>
 
 <div class="hud" style="top:70px;left:50%;transform:translateX(-50%);text-align:center;font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:var(--text-dim);text-transform:none;letter-spacing:0.02em;pointer-events:none;">
   <span id="obsStatus">łączę z /stream…</span>
@@ -1204,13 +1220,18 @@ function draw() {
     ctx.fillStyle = `hsla(${n.h ?? n.hue}, ${s}%, ${l}%, ${(0.55 + n.energy * 0.25) * Math.min(1, depth)})`;
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
     if (animMode === 'live') {
+      // Halo shifts from BRIGHT (palette colour) at persistence=0 to
+      // DARK (bg colour) at persistence=1.  With high trails the halo
+      // actively DARKENS the ring around each neuron, so accumulated
+      // trail brightness is eaten instead of amplified.
       const haloR = r * 4 * (0.4 + n.energy);
       const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
-      // Halo uses palette lightness + slight boost, so pale-cyan halo
-      // stays pale, deep-navy halo stays deep — no more washing to white.
-      const haloL = Math.min(90, l + 10);
-      halo.addColorStop(0, `hsla(${n.h ?? n.hue}, ${s}%, ${haloL}%, ${0.35 * n.energy * depth * (0.15 + 0.85 * clearAlpha)})`);
-      halo.addColorStop(1, 'rgba(0,0,0,0)');
+      const brightL = Math.min(90, l + 10);
+      const mixedL = brightL * (1 - persistence) + 3 * persistence;
+      const mixedS = s * (1 - persistence * 0.7);
+      const alpha  = 0.35 * n.energy * depth;
+      halo.addColorStop(0, `hsla(${n.h ?? n.hue}, ${mixedS}%, ${mixedL}%, ${alpha})`);
+      halo.addColorStop(1, `hsla(${n.h ?? n.hue}, ${mixedS}%, ${mixedL}%, 0)`);
       ctx.fillStyle = halo;
       ctx.fillRect(p.x - haloR, p.y - haloR, haloR * 2, haloR * 2);
     }
@@ -1249,8 +1270,15 @@ function draw() {
     }
     if (hit) continue;
     labelBoxes.push({ x: lx, y: ly, w, h });
+    // Subtle dark backing under the label — invisible at persist=0,
+    // strong at persist=1.  Keeps text legible against trail haze.
+    if (persistence > 0.1) {
+      const padX = fs * 0.25, padY = fs * 0.15;
+      ctx.fillStyle = `rgba(7, 4, 15, ${Math.min(0.72, persistence * 0.85)})`;
+      ctx.fillRect(lx - padX, ly - padY * 0.4, w + padX * 2, h + padY);
+    }
     const alpha = Math.min(1, Math.max(0.5, 0.55 + depth * 0.06));
-    const labelL = Math.min(90, (n.l ?? 60) + 20);  // lift for legibility
+    const labelL = Math.min(90, (n.l ?? 60) + 20);
     ctx.fillStyle = `hsla(${n.h ?? n.hue}, ${Math.max(40, (n.s ?? 85) - 25)}%, ${labelL}%, ${alpha})`;
     ctx.fillText(n.word, lx, ly + fs);
   }
@@ -2009,9 +2037,14 @@ renderTray();
 setInterval(() => {
   const complex = neurons.length > 380 || fps > 0 && fps < 24;
   document.getElementById('poster').classList.toggle('is-pulsing', complex);
-  if (neurons.length > 500) {
+  // Hard cap: never let the scene grow past 500 neurons.  Drop lowest-
+  // energy first.  Keeps physics under O(200²) and render sane.
+  const HARD_CAP = 500;
+  if (neurons.length > HARD_CAP) {
     neurons.sort((a, b) => b.energy - a.energy);
-    const drop = neurons.slice(-Math.max(20, Math.floor(neurons.length * 0.05)));
+    // Drop enough to bring us safely below cap in one pass
+    const overflow = neurons.length - HARD_CAP + 20;
+    const drop = neurons.slice(-overflow);
     for (const n of drop) {
       const idx = neurons.indexOf(n);
       if (idx >= 0) {
