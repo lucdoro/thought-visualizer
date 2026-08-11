@@ -267,12 +267,77 @@ Odpowiedź po polsku. Bez emoji.` }],
   res.end(JSON.stringify(card));
 }
 
+// --- Poster archive ------------------------------------------------------
+// Accepts { name, png (base64), meta } and drops the PNG + a .json sidecar
+// into ./posters/.  Also (re)generates ./posters/index.html gallery page.
+function handlePublish(req, res) {
+  cors(res);
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+  let body = '';
+  req.on('data', c => { body += c; if (body.length > 20_000_000) req.destroy(); });
+  req.on('end', () => {
+    try {
+      const { name, png, meta } = JSON.parse(body);
+      if (!name || !png) throw new Error('missing name/png');
+      const dir = path.join(__dirname, 'posters');
+      fs.mkdirSync(dir, { recursive: true });
+      const safeName = name.replace(/[^a-z0-9._-]/gi, '_');
+      const filePath = path.join(dir, safeName);
+      fs.writeFileSync(filePath, Buffer.from(png, 'base64'));
+      if (meta) fs.writeFileSync(filePath.replace(/\.png$/, '.json'), JSON.stringify(meta, null, 2));
+      writeGalleryIndex(dir);
+      console.log(`  poster saved: ${filePath}`);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, path: filePath, url: `/posters/${safeName}` }));
+    } catch (e) {
+      res.writeHead(400); res.end(JSON.stringify({ error: String(e.message || e) }));
+    }
+  });
+}
+
+function writeGalleryIndex(dir) {
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.png')).sort().reverse();
+  const rows = files.map(f => {
+    const meta = tryReadJson(path.join(dir, f.replace(/\.png$/, '.json')));
+    const iso = meta?.iso || '';
+    const summary = meta?.concepts?.slice(0, 6).map(c => c.w).join(' · ') || '';
+    return `<li><a href="${f}"><img src="${f}" loading="lazy"/><div><strong>${iso}</strong><span>${summary}</span></div></a></li>`;
+  }).join('\n');
+  const html = `<!doctype html><html lang="pl"><head><meta charset="utf-8">
+<title>thought · memory-posters</title>
+<style>
+:root { color-scheme: dark; }
+body { margin:0; padding:60px 40px; background:#07040f; color:#e9e2ff;
+       font-family: "JetBrains Mono", ui-monospace, monospace; }
+h1 { font-family: "Fraunces", serif; font-style: italic; font-weight: 300;
+     font-size: 56px; margin: 0 0 8px; color: #b58cff; }
+p.sub { color:#9a8fbe; margin:0 0 40px; }
+ul { list-style:none; padding:0; margin:0; display:grid;
+     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px; }
+li a { display:block; color:inherit; text-decoration:none;
+       background:#0d0820; border:1px solid rgba(123,77,255,0.15); border-radius:10px;
+       overflow:hidden; transition: transform .15s, border-color .15s; }
+li a:hover { transform: translateY(-3px); border-color: #b58cff; }
+img { width:100%; height:auto; display:block; }
+li div { padding: 12px 16px 16px; font-size: 11px; }
+li strong { display:block; font-weight:500; color:#e9e2ff; margin-bottom:4px; }
+li span { color:#9a8fbe; }
+</style></head><body>
+<h1>thought · memory-posters</h1>
+<p class="sub">${files.length} archiwów. Każdy PNG zawiera ukryty JSON w chunku tEXt "thought-visualizer".</p>
+<ul>${rows}</ul>
+</body></html>`;
+  fs.writeFileSync(path.join(dir, 'index.html'), html);
+}
+function tryReadJson(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } }
+
 // --- Router --------------------------------------------------------------
 http.createServer((req, res) => {
   if (req.url.startsWith('/stream'))  return handleStream(req, res);
   if (req.url.startsWith('/observe')) return handleObserve(req, res);
   if (req.url.startsWith('/think'))   return handleThink(req, res);
   if (req.url.startsWith('/skill'))   return handleSkill(req, res);
+  if (req.url.startsWith('/publish')) return handlePublish(req, res);
   return serveStatic(req, res);
 }).listen(PORT, '127.0.0.1', () => {
   console.log(`\n  🧠  Thought Visualizer  →  http://localhost:${PORT}`);
